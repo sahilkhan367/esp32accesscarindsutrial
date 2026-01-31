@@ -3,6 +3,7 @@ idf_component_register(
         "main.c"
         "wifi_manager.c"
         "web_server.c"
+        "helper_func.c"
     INCLUDE_DIRS
         "."
 )
