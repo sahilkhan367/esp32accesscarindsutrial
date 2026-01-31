@@ -52,6 +52,7 @@ static esp_mqtt_client_handle_t mqtt_client;
 #define DEVICE_ID "esp32_001"
 
 
+uint32_t result;
 
 /* ===================== UART TASKS ===================== */
 
@@ -72,7 +73,9 @@ void uart2_task(void *arg)
 
                 rx_data[len] = '\0';
                 printf("Reader 1: %s\n", rx_data);
-                if (rfid_exists("5400CAA21B27")) {
+                uid_to_decimal(rx_data, &result);
+                printf("%lu\n", (unsigned long)result);
+                if (rfid_exists(rx_data)) {
                     printf("ACCESS GRANTED\n");
                 } else {
                     printf("ACCESS DENIED\n");
@@ -99,7 +102,9 @@ void uart1_task(void *arg)
 
                 rx_data[len] = '\0';
                 printf("Reader 2: %s\n", rx_data);
-                if (rfid_exists("5400CAA21B27")) {
+                uid_to_decimal(rx_data, &result);
+                printf("%lu\n", (unsigned long)result);
+                if (rfid_exists(rx_data)) {
                     printf("ACCESS GRANTED\n");
                 } else {
                     printf("ACCESS DENIED\n");

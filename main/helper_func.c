@@ -1,14 +1,20 @@
 #include <stdio.h>
 #include <string.h>
 #include <stddef.h>   // for size_t
+#include <stdint.h> //for rfid conversion
 
 #include "nvs.h"
 #include "nvs_flash.h"
+
+#include "esp_system.h" //for esp32 reset
+
+
 
 void rfid_add(const char *id);
 void rfid_remove(const char *id);
 void rfid_display_all(void);
 bool rfid_exists(const char *id);
+
 
 
 
@@ -76,7 +82,14 @@ void data_parsing(const char *data, size_t data_len)
     strcmp(value, "DATA") == 0) {
     rfid_display_all();
     }
-
+    else if (strcmp(key, "RESET") == 0 &&
+    strcmp(value, "RESET") == 0) {
+    esp_restart();
+    }
+    else if (strcmp(key, "UNLOCK") == 0 &&
+    strcmp(value, "ALL") == 0) {
+    //esp_restart();
+    }
 }
 
 
@@ -161,3 +174,31 @@ bool rfid_exists(const char *id)
 
     return (err == ESP_OK);
 }
+
+
+
+
+//============= CARD CONVERSION =============
+
+static uint8_t hex_char_to_val(char c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    return 0;
+}
+
+void uid_to_decimal(const char *uid, uint32_t *result)
+{
+    size_t len = strlen(uid);
+    uint32_t value = 0;
+
+    // take CA A2 1B from 5400CAA21B27
+    for (int i = (int)len - 8; i < (int)len - 2; i++) {
+        value = (value << 4) | hex_char_to_val(uid[i]);
+    }
+
+    *result = value;
+}
+
+//=============== CARD conversion END ================
