@@ -4,6 +4,7 @@ idf_component_register(
         "wifi_manager.c"
         "web_server.c"
         "helper_func.c"
+        "gpio_pin.c"
     INCLUDE_DIRS
         "."
 )

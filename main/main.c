@@ -25,6 +25,9 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 
+#include "gpio_pin.h"  //for gpio pins file
+
+
 
 /* ===================== GPIO & UART DEFINES ===================== */
 
@@ -73,12 +76,17 @@ void uart2_task(void *arg)
 
                 rx_data[len] = '\0';
                 printf("Reader 1: %s\n", rx_data);
-                uid_to_decimal(rx_data, &result);
+                uint32_t result;
+                result = uid_to_decimal(rx_data);
                 printf("%lu\n", (unsigned long)result);
-                if (rfid_exists(rx_data)) {
+                if (rfid_exists(result)) {
                     printf("ACCESS GRANTED\n");
+                    relay_task(NULL); 
+                    green_led_1_on_500ms();
+                    buzzer_1_beep();
                 } else {
-                    printf("ACCESS DENIED\n");
+                    red_led_1_on_500ms();   // ✅ safe, non-blocking
+                    printf("Denaid\n");
                 }
             }
         }
@@ -102,12 +110,16 @@ void uart1_task(void *arg)
 
                 rx_data[len] = '\0';
                 printf("Reader 2: %s\n", rx_data);
-                uid_to_decimal(rx_data, &result);
+                result = uid_to_decimal(rx_data);
                 printf("%lu\n", (unsigned long)result);
-                if (rfid_exists(rx_data)) {
+                if (rfid_exists(result)) {
                     printf("ACCESS GRANTED\n");
+                    relay_task(NULL);
+                    green_led_2_on_500ms();
+                    buzzer_2_beep();
                 } else {
-                    printf("ACCESS DENIED\n");
+                    red_led_2_on_500ms();   // ✅ safe, non-blocking
+                    printf("Denaid\n");
                 }
             }
         }
@@ -323,6 +335,7 @@ void app_main(void)
 
     //======== get message as data=======
     nvs_init();
+    gpio_pin_init();
 
 
 

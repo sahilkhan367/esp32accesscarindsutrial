@@ -13,7 +13,7 @@
 void rfid_add(const char *id);
 void rfid_remove(const char *id);
 void rfid_display_all(void);
-bool rfid_exists(const char *id);
+bool rfid_exists(uint32_t id);
 
 
 
@@ -160,7 +160,7 @@ void rfid_display_all(void)
 
 
 
-bool rfid_exists(const char *id)
+bool rfid_exists(uint32_t id)
 {
     nvs_handle_t nvs;
     uint8_t value;
@@ -169,7 +169,10 @@ bool rfid_exists(const char *id)
         return false;
     }
 
-    esp_err_t err = nvs_get_u8(nvs, id, &value);
+    char key[16];
+    snprintf(key, sizeof(key), "%lu", (unsigned long)id);
+
+    esp_err_t err = nvs_get_u8(nvs, key, &value);
     nvs_close(nvs);
 
     return (err == ESP_OK);
@@ -188,17 +191,17 @@ static uint8_t hex_char_to_val(char c)
     return 0;
 }
 
-void uid_to_decimal(const char *uid, uint32_t *result)
+uint32_t uid_to_decimal(const char *uid)
 {
     size_t len = strlen(uid);
     uint32_t value = 0;
 
-    // take CA A2 1B from 5400CAA21B27
+    // Use first 3 bytes of the last 4 bytes (6 hex chars)
     for (int i = (int)len - 8; i < (int)len - 2; i++) {
         value = (value << 4) | hex_char_to_val(uid[i]);
     }
 
-    *result = value;
+    return value;   // return decimal value directly
 }
 
 //=============== CARD conversion END ================
