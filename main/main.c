@@ -39,25 +39,83 @@
 #define UART1_TX       26
 #define UART1_RX       27
 
+
+
+#define DEVICE_ID "esp32_001"
+
+
+static const char *TAG = "ESP32_MQTT";
+static esp_mqtt_client_handle_t mqtt_client;
+
 /* ===================== FORWARD DECLARATIONS ===================== */
 
-void mqtt_publish(const char *data, const char *type);
+void mqtt_publish(const char *data, const char *type)
+{
+    if (!mqtt_client) {
+        ESP_LOGE(TAG, "MQTT client not initialized");
+        return;
+    }
+
+    char json[128];
+
+    snprintf(
+        json,
+        sizeof(json),
+        "{ \"device_id\":\"%s\", \"type\":\"%s\", \"data\":\"%s\" }",
+        DEVICE_ID,
+        type,
+        data
+    );
+
+    esp_mqtt_client_publish(
+        mqtt_client,
+        "esp32/request",
+        json,
+        0,
+        1,
+        0
+    );
+
+    ESP_LOGI(TAG, "MQTT published: %s", json);
+}
 
 /* ===================== GLOBAL VARIABLES ===================== */
 
 QueueHandle_t uart1_queue;
 QueueHandle_t uart2_queue;
 
-static const char *TAG = "ESP32_MQTT";
-static esp_mqtt_client_handle_t mqtt_client;
 
 
-#define DEVICE_ID "esp32_001"
+
 
 
 uint32_t result;
 
 /* ===================== UART TASKS ===================== */
+
+//REQ_TOPIC = "esp32/request"
+
+
+void send_uart_scan_to_server(const char *reader,
+                              uint32_t uid,
+                              const char *direction)
+{
+    char data[96];
+
+    snprintf(
+        data,
+        sizeof(data),
+        "%s:%lu:%s",
+        reader,
+        (unsigned long)uid,
+        direction
+    );
+
+    mqtt_publish(data, "rfid");
+}
+
+
+
 
 void uart2_task(void *arg)
 {
@@ -84,6 +142,7 @@ void uart2_task(void *arg)
                     relay_task(NULL); 
                     green_led_1_on_500ms();
                     buzzer_1_beep();
+                    send_uart_scan_to_server("reader1", result, "IN");
                 } else {
                     red_led_1_on_500ms();   // ✅ safe, non-blocking
                     printf("Denaid\n");
@@ -117,6 +176,7 @@ void uart1_task(void *arg)
                     relay_task(NULL);
                     green_led_2_on_500ms();
                     buzzer_2_beep();
+                    send_uart_scan_to_server("reader2", result, "OUT");
                 } else {
                     red_led_2_on_500ms();   // ✅ safe, non-blocking
                     printf("Denaid\n");
@@ -321,28 +381,13 @@ void app_main(void)
 
     esp_mqtt_client_start(mqtt_client);
 
-    esp_mqtt_client_publish(
-    mqtt_client,
-    "esp32/status/esp32_001",
-    "{\"device_id\":\"esp32_001\",\"status\":\"online\"}",
-    0,
-    1,
-    1
-    );
+   
 
-    
 
 
     //======== get message as data=======
     nvs_init();
     gpio_pin_init();
-
-
-
-
-
-
-
 
 
     /* ---------- Idle Loop ---------- */

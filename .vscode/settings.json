@@ -17,5 +17,6 @@
     "--compile-commands-dir=c:\\esp-idf accesscar\\espaccesscard\\build"
   ],
   "idf.monitorPort": "COM4",
-  "idf.flashType": "UART"
+  "idf.flashType": "UART",
+  "idf.currentSetup": "c:\\espressif\\v5.5.2\\esp-idf"
 }
