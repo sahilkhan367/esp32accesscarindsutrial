@@ -4,6 +4,8 @@ import time
 from fastapi import FastAPI
 import paho.mqtt.client as mqtt
 from fastapi import Body
+from fastapi.responses import FileResponse
+import os
 
 BROKER = "localhost"
 PORT = 1883
@@ -119,7 +121,35 @@ def get_ack(device_id: str):
         "ack": acks.get(device_id, "no_ack")
     }
 
+FIRMWARE_DIR = "firmware"
+
+@app.get("/firmware/{device_id}")
+def download_firmware(device_id: str):
+    firmware_file = f"{device_id}.bin"
+    firmware_path = os.path.join(FIRMWARE_DIR, firmware_file)
+
+    if not os.path.exists(firmware_path):
+        raise HTTPException(status_code=404, detail="Firmware not found")
+
+    return FileResponse(
+        firmware_path,
+        media_type="application/octet-stream",
+        filename=firmware_file
+    )
+
+#http://esp32accesshub.novelinfra.com/firmware/esp32_001
+# use above url for firmware update
+
 
 @app.get("/")
 def root():
     return {"server": "running", "mqtt": "connected"}
+
+
+
+##curl -X POST "http://127.0.0.1:8000/send/esp32_001?cmd=OTA"    cmd for OTA  
+##curl -X POST "http://127.0.0.1:8000/send/esp32_001?cmd={ADD:13072052}"
+##curl -X POST "http://127.0.0.1:8000/send/esp32_001?cmd={RM:13072052}"
+##curl -X POST "http://127.0.0.1:8000/send/esp32_001?cmd={RM:13072052}"
+## curl -X POST "http://127.0.0.1:8000/send/esp32_001?cmd={DISPLAY:DATA}" 
+## curl -X POST "http://127.0.0.1:8000/send/esp32_001?cmd={RESET:RESET}"

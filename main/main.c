@@ -42,10 +42,59 @@
 
 
 #define DEVICE_ID "esp32_001"
+#define OTA_BASE_URL "http://esp32accesshub.novelinfra.com/firmware"
+
 
 
 static const char *TAG = "ESP32_MQTT";
 static esp_mqtt_client_handle_t mqtt_client;
+
+
+//===============OTA update =======================
+
+#include "esp_https_ota.h"
+#include "esp_http_client.h"
+#include "esp_system.h"
+#include "esp_log.h"
+
+void start_ota_update(void)
+{
+    char ota_url[128];
+
+    snprintf(
+        ota_url,
+        sizeof(ota_url),
+        "%s/%s",
+        OTA_BASE_URL,
+        DEVICE_ID
+    );
+
+    ESP_LOGI("OTA", "OTA URL: %s", ota_url);
+
+    esp_http_client_config_t http_cfg = {
+        .url = ota_url,
+        .timeout_ms = 15000,
+        .keep_alive_enable = true,
+    };
+
+    esp_https_ota_config_t ota_cfg = {
+        .http_config = &http_cfg,
+    };
+
+    ESP_LOGI("OTA", "Starting OTA update...");
+
+    esp_err_t ret = esp_https_ota(&ota_cfg);
+
+    if (ret == ESP_OK) {
+        ESP_LOGI("OTA", "OTA successful, rebooting...");
+        esp_restart();
+    } else {
+        ESP_LOGE("OTA", "OTA failed: %s", esp_err_to_name(ret));
+    }
+}
+
+
+
 
 /* ===================== FORWARD DECLARATIONS ===================== */
 
@@ -256,6 +305,9 @@ static void mqtt_event_handler(void *arg,
             1,
             1
         );
+        }else if (strncmp(event->data, "OTA", 3) == 0) {
+        ESP_LOGI(TAG, "OTA command received");
+        start_ota_update();
         }
         break;
 
