@@ -203,7 +203,7 @@ static void mqtt_event_handler(void *arg,
         // ✅ SUBSCRIBE for commands
         esp_mqtt_client_subscribe(
             event->client,
-            "esp32/cmd/esp32_001",
+            "esp32/cmd/esp32_001",   /// change here for different esp32
             1
         );
 
@@ -223,7 +223,7 @@ static void mqtt_event_handler(void *arg,
         printf("DATA before if: %.*s\n", event->data_len, event->data);
         data_parsing(event->data, event->data_len);
         // 👉 handle command here
-        if (strncmp(event->data, "ADD", event->data_len) == 0) {
+        if (strncmp(event->data, "ADD", 3) == 0) {
             ESP_LOGI(TAG, "Data recived");
             printf("DATA: %.*s\n", event->data_len, event->data);
             //data_parsing();
@@ -234,12 +234,13 @@ static void mqtt_event_handler(void *arg,
             esp_mqtt_client_publish(
             event->client,
             "esp32/ack/esp32_001",
-            "{\"cmd\":\"ADD\",\"status\":\"received\"}",
+            //"{\"cmd\":\"ADD\",\"status\":\"received\"}",
+            "{\"device_id\":\"esp32_001\",\"cmd\":\"ADD\",\"status\":\"received\"}",
             0,
             1,
-            0
+            1
         );
-        }else if(strncmp(event->data, "RM", event->data_len)==0){
+        }else if(strncmp(event->data, "RM", 2)==0){
             printf("DATA: %.*s\n", event->data_len, event->data);
             //data_parsing("RM event");
             //--------data add in esp32 code--------------
@@ -249,10 +250,11 @@ static void mqtt_event_handler(void *arg,
             esp_mqtt_client_publish(
             event->client,
             "esp32/ack/esp32_001",
-            "{\"cmd\":\"RM\",\"status\":\"received\"}",
+            //"{\"cmd\":\"RM\",\"status\":\"received\"}",
+            "{\"device_id\":\"esp32_001\",\"cmd\":\"RM\",\"status\":\"received\"}",
             0,
             1,
-            0
+            1
         );
         }
         break;
