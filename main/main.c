@@ -268,39 +268,49 @@ static void mqtt_event_handler(void *arg,
         break;
 
     case MQTT_EVENT_DATA:
-        ESP_LOGI(TAG, "CMD RECEIVED: %.*s", event->data_len, event->data);
-        printf("DATA before if: %.*s\n", event->data_len, event->data);
-        data_parsing(event->data, event->data_len);
-        // 👉 handle command here
-        if (strncmp(event->data, "ADD", 3) == 0) {
-            ESP_LOGI(TAG, "Data recived");
-            printf("DATA: %.*s\n", event->data_len, event->data);
-            //data_parsing();
-            //--------data add in esp32 code--------------
+    ESP_LOGI(TAG, "CMD RECEIVED: %.*s", event->data_len, event->data);
+    printf("DATA before if: %.*s\n", event->data_len, event->data);
+    data_parsing(event->data, event->data_len);
 
+    if (strncmp(event->data, "ADD", 3) == 0) {
+        ESP_LOGI(TAG, "Data recived");
+        printf("DATA: %.*s\n", event->data_len, event->data);
 
-            //-------ACK check for recived data
-            esp_mqtt_client_publish(
+        // 🔹 MINIMAL ADDITION START
+        char ack_msg[256];
+
+        snprintf(
+            ack_msg,
+            sizeof(ack_msg),
+            "{\"device_id\":\"esp32_001\",\"ADD\":\"%.*s\",\"status\":\"received\"}",
+            event->data_len,
+            event->data
+        );
+        // 🔹 MINIMAL ADDITION END
+
+        esp_mqtt_client_publish(
             event->client,
             "esp32/ack/esp32_001",
-            //"{\"cmd\":\"ADD\",\"status\":\"received\"}",
-            "{\"device_id\":\"esp32_001\",\"cmd\":\"ADD\",\"status\":\"received\"}",
+            ack_msg,   // 👈 only this line changed
             0,
             1,
             1
         );
-        }else if(strncmp(event->data, "RM", 2)==0){
-            printf("DATA: %.*s\n", event->data_len, event->data);
-            //data_parsing("RM event");
-            //--------data add in esp32 code--------------
-
-
-            //-------ACK check for recived data
-            esp_mqtt_client_publish(
+        }else if (strncmp(event->data, "RM", 2) == 0) {
+        printf("DATA: %.*s\n", event->data_len, event->data);
+        // 🔹 MINIMAL ADDITION
+        char ack_msg[256];
+        snprintf(
+        ack_msg,
+        sizeof(ack_msg),
+        "{\"device_id\":\"esp32_001\",\"RM\":\"%.*s\",\"status\":\"received\"}",
+        event->data_len,
+        event->data
+        );
+        esp_mqtt_client_publish(
             event->client,
             "esp32/ack/esp32_001",
-            //"{\"cmd\":\"RM\",\"status\":\"received\"}",
-            "{\"device_id\":\"esp32_001\",\"cmd\":\"RM\",\"status\":\"received\"}",
+            ack_msg,   // 👈 only change
             0,
             1,
             1
