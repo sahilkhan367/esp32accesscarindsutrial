@@ -271,6 +271,17 @@ static void mqtt_event_handler(void *arg,
     ESP_LOGI(TAG, "CMD RECEIVED: %.*s", event->data_len, event->data);
     printf("DATA before if: %.*s\n", event->data_len, event->data);
     data_parsing(event->data, event->data_len);
+    static char cached_gmail[128] = "";
+    if (strncmp(event->data, "gmail:", 6) == 0) {
+    snprintf(
+        cached_gmail,
+        sizeof(cached_gmail),
+        "%.*s",
+        event->data_len - 6,
+        event->data + 6
+    );
+    ESP_LOGI(TAG, "Cached gmail: %s", cached_gmail);
+    }
 
     if (strncmp(event->data, "ADD", 3) == 0) {
         ESP_LOGI(TAG, "Data recived");
@@ -282,9 +293,10 @@ static void mqtt_event_handler(void *arg,
         snprintf(
             ack_msg,
             sizeof(ack_msg),
-            "{\"device_id\":\"esp32_001\",\"ADD\":\"%.*s\",\"status\":\"received\"}",
+            "{\"device_id\":\"esp32_001\",\"ADD\":\"%.*s\",\"status\":\"received\",\"gmail\":\"%s\"}",
             event->data_len,
-            event->data
+            event->data,
+            cached_gmail
         );
         // 🔹 MINIMAL ADDITION END
 
@@ -296,16 +308,18 @@ static void mqtt_event_handler(void *arg,
             1,
             1
         );
-        }else if (strncmp(event->data, "RM", 2) == 0) {
+        }
+        else if (strncmp(event->data, "RM", 2) == 0) {
         printf("DATA: %.*s\n", event->data_len, event->data);
         // 🔹 MINIMAL ADDITION
         char ack_msg[256];
         snprintf(
         ack_msg,
         sizeof(ack_msg),
-        "{\"device_id\":\"esp32_001\",\"RM\":\"%.*s\",\"status\":\"received\"}",
+        "{\"device_id\":\"esp32_001\",\"RM\":\"%.*s\",\"status\":\"received\",\"gmail\":\"%s\"}",
         event->data_len,
-        event->data
+        event->data,
+        cached_gmail
         );
         esp_mqtt_client_publish(
             event->client,
