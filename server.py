@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 import os
 from datetime import datetime
 from pydantic import BaseModel
+from datetime import datetime, timedelta
 
 
 
@@ -142,7 +143,7 @@ def on_message(client, userdata, msg):
         now = datetime.now()
         log_document = {
             "device_id": device_id,
-            "reader": reader,
+            # "reader": reader,
             "RFID": RFID,
             "direction": direction,
             "gmail": gmail,
@@ -257,3 +258,144 @@ def root():
 ##curl -X POST "http://127.0.0.1:8000/send/esp32_001?cmd={gmail:sahil.k@noveloffice.in, RM:13072052}"       #CMD for Removing cards
 ##curl -X POST "http://127.0.0.1:8000/send/esp32_001?cmd={DISPLAY:DATA}"                                    #CMD for Display Data
 ##curl -X POST "http://127.0.0.1:8000/send/esp32_001?cmd={RESET:RESET}"                                     #CMD for Reset
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+####============================== webpage proessing ====================================
+
+from typing import List
+
+
+class AttendanceRequest(BaseModel):
+    email: str
+    date: str
+
+def to_dt(date, time):
+    return datetime.strptime(f"{date} {time}", "%d-%m-%Y %H:%M:%S")
+
+def sec_to_hms(seconds):
+    return str(timedelta(seconds=seconds))
+
+
+
+def calculate_attendance(logs, date):
+    # Default response
+    result = {
+        "login_time": None,
+        "logout_time": None,
+        "break_hours": "00:00:00",
+        "total_login_time": "00:00:00",
+        "absent_status": "absent",
+        "late_status": None,
+        "error": None
+    }
+
+    if not logs:
+        return result
+
+    logs.sort(key=lambda x: to_dt(date, x["time"]))
+
+    result["absent_status"] = "present"
+    result["login_time"] = logs[0]["time"]
+    result["logout_time"] = logs[-1]["time"]
+
+    # First OUT check
+    if logs[0]["direction"] == "OUT":
+        result["error"] = f"first log IN is missing {logs[0]['time']}"
+
+    # Last IN check
+    if logs[-1]["direction"] == "IN":
+        err = f"last log OUT missing {logs[-1]['time']}"
+        result["error"] = f"{result['error']}, {err}" if result["error"] else err
+
+    total_login_sec = 0
+    break_sec = 0
+    last_state = None
+    last_time = None
+
+    for log in logs:
+        cur_time = to_dt(date, log["time"])
+        state = log["direction"]
+
+        # Double IN / OUT check
+        if state == last_state:
+            err = f"double {state} at {log['time']}"
+            result["error"] = f"{result['error']}, {err}" if result["error"] else err
+
+        if state == "IN":
+            last_time = cur_time
+
+        elif state == "OUT" and last_time:
+            total_login_sec += int((cur_time - last_time).total_seconds())
+            last_time = cur_time
+
+        last_state = state
+
+    # Break calculation
+    for i in range(len(logs) - 1):
+        if logs[i]["direction"] == "OUT" and logs[i + 1]["direction"] == "IN":
+            t1 = to_dt(date, logs[i]["time"])
+            t2 = to_dt(date, logs[i + 1]["time"])
+            break_sec += int((t2 - t1).total_seconds())
+
+    result["break_hours"] = sec_to_hms(break_sec)
+    result["total_login_time"] = sec_to_hms(total_login_sec)
+
+    # Late logic
+    result["late_status"] = "late" if result["login_time"] > "10:05:00" else "on time"
+
+    return result
+
+
+
+
+@app.post("/attendance/multi")
+def attendance_multi(payload: List[AttendanceRequest]):
+
+    response = []
+
+    for req in payload:
+        logs = list(esp32_logs.find(
+            {
+                "gmail": req.email,
+                "date": req.date
+            },
+            {"_id": 0}
+        ))
+
+        result = calculate_attendance(logs, req.date)
+
+        response.append({
+            "email": req.email,
+            **result
+        })
+
+    return response
+
+
+
+
+# http://10.80.4.129:8000/attendance/multi
+# [
+#   {
+#     "email": "sahil.k@noveloffice.in",
+#     "date": "10-02-2026"
+#   },
+#   {
+#     "email": "anirudh.k@noveloffice.in",
+#     "date": "10-02-2026"
+#   }
+# ]
