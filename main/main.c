@@ -26,6 +26,10 @@
 #include "nvs.h"
 
 #include "gpio_pin.h"  //for gpio pins file
+#include "esp_crt_bundle.h"
+#include "esp_sntp.h"
+#include <time.h>
+
 
 
 
@@ -42,7 +46,7 @@
 
 
 #define DEVICE_ID "esp32_001"
-#define OTA_BASE_URL "http://esp32accesshub.novelinfra.com/firmware"
+#define OTA_BASE_URL "https://esp32accesshub.novelinfra.com/firmware"
 
 
 
@@ -72,9 +76,10 @@ void start_ota_update(void)
     ESP_LOGI("OTA", "OTA URL: %s", ota_url);
 
     esp_http_client_config_t http_cfg = {
-        .url = ota_url,
-        .timeout_ms = 15000,
-        .keep_alive_enable = true,
+    .url = ota_url,
+    .timeout_ms = 15000,
+    .keep_alive_enable = true,
+    .crt_bundle_attach = esp_crt_bundle_attach,
     };
 
     esp_https_ota_config_t ota_cfg = {
@@ -366,6 +371,16 @@ void app_main(void)
     /* ---------- WiFi Initialization ---------- */
     nvs_flash_init();
     wifi_manager_init();
+    extern EventGroupHandle_t wifi_event_group;
+    #define WIFI_CONNECTED_BIT BIT0
+    
+    xEventGroupWaitBits(
+        wifi_event_group,
+        WIFI_CONNECTED_BIT,
+        false,
+        true,
+        portMAX_DELAY
+    );
     web_server_start();
 
     /* ---------- UART2 (Reader 1) ---------- */
@@ -438,7 +453,8 @@ void app_main(void)
     ESP_LOGI(TAG, "Starting ESP32 MQTT test");
 
     esp_mqtt_client_config_t mqtt_cfg = {
-        .broker.address.uri = "ws://esp32accesshub.novelinfra.com/mqtt",
+        .broker.address.uri = "wss://esp32accesshub.novelinfra.com/mqtt",
+        .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
         .session.last_will.topic = "esp32/status/esp32_001",
         .session.last_will.msg = "{\"device_id\":\"esp32_001\",\"status\":\"offline\"}",
         .session.last_will.qos = 1,
@@ -456,6 +472,7 @@ void app_main(void)
 
 
 
+  
 
     esp_mqtt_client_start(mqtt_client);
 

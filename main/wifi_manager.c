@@ -9,15 +9,20 @@
 #include "driver/gpio.h"
 
 #include "wifi_manager.h"
+#include "esp_sntp.h"
+#include <time.h>
+#include "freertos/event_groups.h"
+
 
 #define WIFI_CONNECTED_BIT BIT0
 #define MAX_RETRY 5
 
 #define WIFI_LED_GPIO GPIO_NUM_2
 
+extern EventGroupHandle_t wifi_event_group;
 
 static const char *TAG = "WIFI_MGR";
-static EventGroupHandle_t wifi_event_group;
+EventGroupHandle_t wifi_event_group;
 
 
 static char saved_ssid[32];
@@ -79,6 +84,14 @@ bool wifi_get_connected_ssid(char *ssid, size_t len)
 
 //-------------------------------
 
+static void initialize_sntp(void)
+{
+    ESP_LOGI("SNTP", "Initializing SNTP");
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_init();
+}
+
 
 
 static void wifi_event_handler(void *arg,
@@ -100,6 +113,25 @@ static void wifi_event_handler(void *arg,
         xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);
         gpio_set_level(WIFI_LED_GPIO, 0); // LED ON
         ESP_LOGI(TAG, "STA connected");
+        initialize_sntp();
+
+        time_t now = 0;
+        struct tm timeinfo = { 0 };
+        
+        int retry = 0;
+        const int retry_count = 10;
+
+        while (timeinfo.tm_year < (2016 - 1900) && retry < retry_count) {
+            ESP_LOGI("SNTP", "Waiting for time sync... (%d/%d)", retry + 1, retry_count);
+            vTaskDelay(2000 / portTICK_PERIOD_MS);
+            time(&now);
+            localtime_r(&now, &timeinfo);
+            retry++;
+        }
+        
+        ESP_LOGI("SNTP", "Time synchronized");
+        
+        // Now start MQTT
     }
 }
 

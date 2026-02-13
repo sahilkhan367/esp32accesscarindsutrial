@@ -9,6 +9,7 @@ import os
 from datetime import datetime
 from pydantic import BaseModel
 from datetime import datetime, timedelta
+from fastapi.middleware.cors import CORSMiddleware
 
 
 
@@ -21,11 +22,24 @@ MQTT_TOPIC = "esp32/access/receive"
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
 mqtt_client = mqtt.Client()
 
 # Store device last seen time
 devices = {}
 acks = {}
+
+
+
+
 
 
 #==============data base configurations===================
@@ -254,7 +268,7 @@ def root():
 
 
 ##curl -X POST "http://127.0.0.1:8000/send/esp32_001?cmd=OTA"                                               #cmd for OTA  updates
-##curl -X POST "http://127.0.0.1:8000/send/esp32_001?cmd={gmail:sahil.k@noveloffice.in, ADD:13072052}"      #CMD for Adding card
+##curl -X POST "http://127.0.0.1:8000/send/esp32_001?cmd={gmail:sahil.k@noveloffice.in,ADD:13072052}"      #CMD for Adding card
 ##curl -X POST "http://127.0.0.1:8000/send/esp32_001?cmd={gmail:sahil.k@noveloffice.in, RM:13072052}"       #CMD for Removing cards
 ##curl -X POST "http://127.0.0.1:8000/send/esp32_001?cmd={DISPLAY:DATA}"                                    #CMD for Display Data
 ##curl -X POST "http://127.0.0.1:8000/send/esp32_001?cmd={RESET:RESET}"                                     #CMD for Reset
@@ -292,11 +306,11 @@ def sec_to_hms(seconds):
 
 
 def calculate_attendance(logs, date):
-    # Default response
     result = {
         "login_time": None,
         "logout_time": None,
         "break_hours": "00:00:00",
+        "effective_login_time": "00:00:00",  # NEW
         "total_login_time": "00:00:00",
         "absent_status": "absent",
         "late_status": None,
@@ -312,11 +326,9 @@ def calculate_attendance(logs, date):
     result["login_time"] = logs[0]["time"]
     result["logout_time"] = logs[-1]["time"]
 
-    # First OUT check
     if logs[0]["direction"] == "OUT":
         result["error"] = f"first log IN is missing {logs[0]['time']}"
 
-    # Last IN check
     if logs[-1]["direction"] == "IN":
         err = f"last log OUT missing {logs[-1]['time']}"
         result["error"] = f"{result['error']}, {err}" if result["error"] else err
@@ -330,7 +342,6 @@ def calculate_attendance(logs, date):
         cur_time = to_dt(date, log["time"])
         state = log["direction"]
 
-        # Double IN / OUT check
         if state == last_state:
             err = f"double {state} at {log['time']}"
             result["error"] = f"{result['error']}, {err}" if result["error"] else err
@@ -351,10 +362,15 @@ def calculate_attendance(logs, date):
             t2 = to_dt(date, logs[i + 1]["time"])
             break_sec += int((t2 - t1).total_seconds())
 
+    # Assign values properly
     result["break_hours"] = sec_to_hms(break_sec)
-    result["total_login_time"] = sec_to_hms(total_login_sec)
 
-    # Late logic
+    result["effective_login_time"] = sec_to_hms(total_login_sec)
+
+    # Total time = working + break
+    overall_sec = total_login_sec + break_sec
+    result["total_login_time"] = sec_to_hms(overall_sec)
+
     result["late_status"] = "late" if result["login_time"] > "10:05:00" else "on time"
 
     return result
