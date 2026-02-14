@@ -12,6 +12,7 @@
 #include "esp_sntp.h"
 #include <time.h>
 #include "freertos/event_groups.h"
+#include "web_server.h"
 
 
 #define WIFI_CONNECTED_BIT BIT0
@@ -165,7 +166,7 @@ static void wifi_led_init(void)
     };
     gpio_config(&io_conf);
 
-    gpio_set_level(WIFI_LED_GPIO, 0); // OFF initially
+    gpio_set_level(WIFI_LED_GPIO, 1); // OFF initially
 }
 
 static bool load_wifi_nvs(void)
@@ -268,6 +269,7 @@ void wifi_manager_init(void)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
     ESP_ERROR_CHECK(esp_wifi_start());
+    web_server_start();
 
     // 🔑 LOAD SAVED CREDENTIALS AFTER BOOT
     if (load_wifi_nvs()) {
