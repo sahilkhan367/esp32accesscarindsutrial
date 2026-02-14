@@ -4,8 +4,8 @@
 #include "driver/gpio.h"
 
 // -------- PIN DEFINITIONS --------
-#define GREEN_LED_1   GPIO_NUM_25
-#define RED_LED_1     GPIO_NUM_32
+#define GREEN_LED_1   GPIO_NUM_4
+#define RED_LED_1     GPIO_NUM_18
 #define BUZZER_1      GPIO_NUM_22
 
 #define GREEN_LED_2   GPIO_NUM_13

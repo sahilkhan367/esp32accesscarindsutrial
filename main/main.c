@@ -187,10 +187,10 @@ void uart2_task(void *arg)
                 );
 
                 rx_data[len] = '\0';
-                printf("Reader 1: %s\n", rx_data);
+                //printf("Reader 1: %s\n", rx_data);
                 uint32_t result;
                 result = uid_to_decimal(rx_data);
-                printf("%lu\n", (unsigned long)result);
+                //printf("%lu\n", (unsigned long)result);
                 if (rfid_exists(result)) {
                     printf("ACCESS GRANTED\n");
                     relay_task(NULL); 
@@ -199,7 +199,7 @@ void uart2_task(void *arg)
                     send_uart_scan_to_server("reader1", result, "IN");
                 } else {
                     red_led_1_on_500ms();   // ✅ safe, non-blocking
-                    printf("Denaid\n");
+                    //printf("Denaid\n");
                 }
             }
         }
@@ -222,18 +222,18 @@ void uart1_task(void *arg)
                 );
 
                 rx_data[len] = '\0';
-                printf("Reader 2: %s\n", rx_data);
+                //printf("Reader 2: %s\n", rx_data);
                 result = uid_to_decimal(rx_data);
-                printf("%lu\n", (unsigned long)result);
+                //printf("%lu\n", (unsigned long)result);
                 if (rfid_exists(result)) {
-                    printf("ACCESS GRANTED\n");
+                    //printf("ACCESS GRANTED\n");
                     relay_task(NULL);
                     green_led_2_on_500ms();
                     buzzer_2_beep();
                     send_uart_scan_to_server("reader2", result, "OUT");
                 } else {
                     red_led_2_on_500ms();   // ✅ safe, non-blocking
-                    printf("Denaid\n");
+                    //printf("Denaid\n");
                 }
             }
         }
@@ -274,7 +274,7 @@ static void mqtt_event_handler(void *arg,
 
     case MQTT_EVENT_DATA:
     ESP_LOGI(TAG, "CMD RECEIVED: %.*s", event->data_len, event->data);
-    printf("DATA before if: %.*s\n", event->data_len, event->data);
+    //printf("DATA before if: %.*s\n", event->data_len, event->data);
     data_parsing(event->data, event->data_len);
     static char cached_gmail[128] = "";
     if (strncmp(event->data, "gmail:", 6) == 0) {
@@ -290,7 +290,7 @@ static void mqtt_event_handler(void *arg,
 
     if (strncmp(event->data, "ADD", 3) == 0) {
         ESP_LOGI(TAG, "Data recived");
-        printf("DATA: %.*s\n", event->data_len, event->data);
+        //printf("DATA: %.*s\n", event->data_len, event->data);
 
         // 🔹 MINIMAL ADDITION START
         char ack_msg[256];
@@ -315,7 +315,7 @@ static void mqtt_event_handler(void *arg,
         );
         }
         else if (strncmp(event->data, "RM", 2) == 0) {
-        printf("DATA: %.*s\n", event->data_len, event->data);
+        //printf("DATA: %.*s\n", event->data_len, event->data);
         // 🔹 MINIMAL ADDITION
         char ack_msg[256];
         snprintf(
