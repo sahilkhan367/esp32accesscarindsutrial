@@ -258,7 +258,7 @@ void wifi_manager_init(void)
 
     wifi_config_t ap_cfg = {
         .ap = {
-            .ssid = "ESP32_SETUP",
+            .ssid = "ESP32_SETUP_test",
             .password = "12345678",
             .channel = 0,   // AUTO
             .max_connection = 4,

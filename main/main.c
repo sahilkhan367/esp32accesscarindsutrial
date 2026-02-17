@@ -483,6 +483,12 @@ void app_main(void)
     //======== get message as data=======
     nvs_init();
     gpio_pin_init();
+    nvs_stats_t stats;
+    nvs_get_stats(NULL, &stats);
+
+    ESP_LOGI("NVS", "Total entries: %d", stats.total_entries);
+    ESP_LOGI("NVS", "Used entries: %d", stats.used_entries);
+    ESP_LOGI("NVS", "Free entries: %d", stats.free_entries);
 
 
     /* ---------- Idle Loop ---------- */

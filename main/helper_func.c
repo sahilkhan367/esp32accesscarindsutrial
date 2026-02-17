@@ -69,8 +69,8 @@ void data_parsing(const char *data, size_t data_len)
     value[value_len] = '\0';
 
     /* ---------- OUTPUT ---------- */
-    //printf("KEY   = %s\n", key);
-    //printf("VALUE = %s\n", value);
+    printf("KEY   = %s\n", key);
+    printf("VALUE = %s\n", value);
 
     if (strcmp(key, "ADD") == 0) {
     rfid_add(value);
@@ -144,14 +144,14 @@ void rfid_display_all(void)
     nvs_iterator_t it = NULL;
     esp_err_t err;
 
-    //printf("---- STORED RFID CARDS ----\n");
+    printf("---- STORED RFID CARDS ----\n");
 
     err = nvs_entry_find("nvs", RFID_NAMESPACE, NVS_TYPE_U8, &it);
     while (err == ESP_OK && it != NULL) {
 
         nvs_entry_info_t info;
         nvs_entry_info(it, &info);
-        //printf("%s\n", info.key);
+        printf("%s\n", info.key);
 
         err = nvs_entry_next(&it);
     }
