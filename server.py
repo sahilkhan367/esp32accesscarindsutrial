@@ -54,6 +54,7 @@ db = client["Transaction_hub"]        # database name
 esp32_health = db["esp32_health"]       # collection name
 esp32_user = db["esp32_user"]
 esp32_logs = db["esp32_logs"]
+esp32_details =db["esp32_details"]
 
 
 # -------- MQTT CALLBACKS --------
@@ -215,7 +216,7 @@ def device_status(device_id: str):
 
 
 
-@app.post("/send/{device_id}")
+@app.get("/send/{device_id}")
 def send_command(device_id: str, cmd: str):
     topic = f"esp32/cmd/{device_id}"
     #print("hello hello testing....")
@@ -271,7 +272,7 @@ def root():
 ##curl -X POST "http://127.0.0.1:8000/send/esp32_001?cmd={gmail:sahil.k@noveloffice.in,ADD:13072052}"      #CMD for Adding card
 ##curl -X POST "http://127.0.0.1:8000/send/esp32_001?cmd={gmail:sahil.k@noveloffice.in, RM:13072052}"       #CMD for Removing cards
 ##curl -X POST "http://127.0.0.1:8000/send/esp32_001?cmd={DISPLAY:DATA}"                                    #CMD for Display Data
-##curl -X POST "http://127.0.0.1:8000/send/esp32_001?cmd={RESET:RESET}"                                     #CMD for Reset
+##curl -X GET "http://127.0.0.1:8000/send/esp32_001?cmd={RESET:RESET}"                                     #CMD for Reset
 
 
 
@@ -403,6 +404,172 @@ def attendance_multi(payload: List[AttendanceRequest]):
 
 
 
+
+class ESP32DetailsModel(BaseModel):
+    device_id: str
+    site: str
+    floor: str
+    cabin: str
+
+
+@app.post("/add-esp32")
+def esp32_details(data: ESP32DetailsModel):
+    try:
+        document = {
+            "device_id": data.device_id,
+            "site": data.site,
+            "floor": data.floor,
+            "cabin": data.cabin,
+            "created_at": datetime.utcnow()
+        }
+
+        result = db["esp32_details"].insert_one(document)
+
+        return {
+            "message": "Data inserted successfully",
+            "inserted_id": str(result.inserted_id)
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@app.get("/delete-esp32/{device_id}")
+def delete_esp32(device_id: str):
+    try:
+        result = db["esp32_details"].delete_one(
+            {"device_id": device_id}
+        )
+
+        if result.deleted_count == 0:
+            raise HTTPException(
+                status_code=404,
+                detail="Device not found"
+            )
+
+        return {
+            "message": "Device deleted successfully",
+            "device_id": device_id
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/update-esp32/{device_id}")
+def update_esp32(device_id: str, data: ESP32DetailsModel):
+    try:
+        update_data = {
+            "site": data.site,
+            "floor": data.floor,
+            "cabin": data.cabin,
+            "updated_at": datetime.utcnow()
+        }
+
+        result = db["esp32_details"].update_one(
+            {"device_id": device_id},
+            {"$set": update_data}
+        )
+
+        if result.matched_count == 0:
+            raise HTTPException(
+                status_code=404,
+                detail="Device not found"
+            )
+
+        return {
+            "message": "Device updated successfully",
+            "device_id": device_id
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+@app.get("/get-user/{device_id}")
+def get_users_by_device(device_id: str):
+    try:
+        documents = list(
+            db["esp32_user"].find({"device_id": device_id})
+        )
+
+        if not documents:
+            raise HTTPException(
+                status_code=404,
+                detail="No records found for this device"
+            )
+
+        for doc in documents:
+            doc["_id"] = str(doc["_id"])
+
+        return {
+            "count": len(documents),
+            "device_id": device_id,
+            "data": documents
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
+
+
+
+@app.get("/get-esp32")
+def get_all_esp32():
+    try:
+        documents = []
+
+        for doc in db["esp32_details"].find():
+            doc["_id"] = str(doc["_id"])   # convert ObjectId to string
+            documents.append(doc)
+
+        return {
+            "count": len(documents),
+            "data": documents
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+@app.get("/health-esp32")
+def get_latest_health_per_device():
+    try:
+        pipeline = [
+            {"$sort": {"_id": -1}},  # newest first
+            {
+                "$group": {
+                    "_id": "$device_id",
+                    "latest_log": {"$first": "$$ROOT"}
+                }
+            }
+        ]
+
+        results = list(db["esp32_health"].aggregate(pipeline))
+
+        response = []
+
+        for item in results:
+            log = item["latest_log"]
+            log["_id"] = str(log["_id"])
+            response.append(log)
+
+        return {
+            "count": len(response),
+            "data": response
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # http://10.80.4.129:8000/attendance/multi
 # [
