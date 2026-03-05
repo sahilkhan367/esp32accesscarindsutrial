@@ -45,7 +45,7 @@
 
 
 
-#define DEVICE_ID "esp32_001"
+#define DEVICE_ID "esp32_002"
 #define OTA_BASE_URL "https://esp32accesshub.novelinfra.com/firmware"
 
 
@@ -257,15 +257,15 @@ static void mqtt_event_handler(void *arg,
         // ✅ SUBSCRIBE for commands
         esp_mqtt_client_subscribe(
             event->client,
-            "esp32/cmd/esp32_001",   /// change here for different esp32
+            "esp32/cmd/esp32_002",   /// change here for different esp32
             1
         );
 
         // Publish online status
         esp_mqtt_client_publish(
             event->client,
-            "esp32/status/esp32_001",
-            "{\"device_id\":\"esp32_001\",\"status\":\"online\"}",
+            "esp32/status/esp32_002",
+            "{\"device_id\":\"esp32_002\",\"status\":\"online\"}",
             0,
             1,
             1
@@ -298,7 +298,7 @@ static void mqtt_event_handler(void *arg,
         snprintf(
             ack_msg,
             sizeof(ack_msg),
-            "{\"device_id\":\"esp32_001\",\"ADD\":\"%.*s\",\"status\":\"received\",\"gmail\":\"%s\"}",
+            "{\"device_id\":\"esp32_002\",\"ADD\":\"%.*s\",\"status\":\"received\",\"gmail\":\"%s\"}",
             event->data_len,
             event->data,
             cached_gmail
@@ -307,7 +307,7 @@ static void mqtt_event_handler(void *arg,
 
         esp_mqtt_client_publish(
             event->client,
-            "esp32/ack/esp32_001",
+            "esp32/ack/esp32_002",
             ack_msg,   // 👈 only this line changed
             0,
             1,
@@ -321,14 +321,14 @@ static void mqtt_event_handler(void *arg,
         snprintf(
         ack_msg,
         sizeof(ack_msg),
-        "{\"device_id\":\"esp32_001\",\"RM\":\"%.*s\",\"status\":\"received\",\"gmail\":\"%s\"}",
+        "{\"device_id\":\"esp32_002\",\"RM\":\"%.*s\",\"status\":\"received\",\"gmail\":\"%s\"}",
         event->data_len,
         event->data,
         cached_gmail
         );
         esp_mqtt_client_publish(
             event->client,
-            "esp32/ack/esp32_001",
+            "esp32/ack/esp32_002",
             ack_msg,   // 👈 only change
             0,
             1,
@@ -455,8 +455,8 @@ void app_main(void)
     esp_mqtt_client_config_t mqtt_cfg = {
         .broker.address.uri = "wss://esp32accesshub.novelinfra.com/mqtt",
         .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
-        .session.last_will.topic = "esp32/status/esp32_001",
-        .session.last_will.msg = "{\"device_id\":\"esp32_001\",\"status\":\"offline\"}",
+        .session.last_will.topic = "esp32/status/esp32_002",
+        .session.last_will.msg = "{\"device_id\":\"esp32_002\",\"status\":\"offline\"}",
         .session.last_will.qos = 1,
         .session.last_will.retain = true,
     };

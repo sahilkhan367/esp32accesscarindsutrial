@@ -10,7 +10,7 @@ from datetime import datetime
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 from fastapi.middleware.cors import CORSMiddleware
-
+from fastapi import FastAPI, WebSocket
 
 
 BROKER = "localhost"
@@ -290,6 +290,14 @@ def root():
 
 
 ####============================== webpage proessing ====================================
+
+
+
+
+
+
+
+
 
 from typing import List
 
@@ -571,6 +579,35 @@ def get_latest_health_per_device():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+
+
+#end point to read the RFID number
+
+latest_data = None
+
+@app.get("/get_string")
+def get_string(text: str):
+    global latest_data
+    latest_data = text
+    return {"received": text}
+
+
+@app.get("/display")
+def display():
+    global latest_data
+
+    if latest_data is None:
+        return {"data": "No card found"}
+
+    temp = latest_data
+    latest_data = None   # clear after reading
+
+    return {"data": temp}
+
+
+
+
 # http://10.80.4.129:8000/attendance/multi
 # [
 #   {
@@ -582,3 +619,10 @@ def get_latest_health_per_device():
 #     "date": "10-02-2026"
 #   }
 # ]
+
+
+
+# sudo systemctl restart mainapp.service    // restarts the systemd services
+# sudo journalctl -u mainapp -f              //display the logs
+#sudo systemctl restart nginx               //restarts the nginx
+
