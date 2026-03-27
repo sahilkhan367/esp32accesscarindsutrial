@@ -2,27 +2,49 @@
 #include <string.h>
 #include <stddef.h>   // for size_t
 #include <stdint.h> //for rfid conversion
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "nvs.h"
 #include "nvs_flash.h"
 
 #include "esp_system.h" //for esp32 reset
+#include "mqtt_client.h"
 
+extern esp_mqtt_client_handle_t mqtt_client;
 
 
 void rfid_add(const char *id);
 void rfid_remove(const char *id);
 void rfid_display_all(void);
 bool rfid_exists(uint32_t id);
-
+void bulk_add_parse_and_store(const char *data, size_t len);
+void bulk_rm_parse_and_remove(const char *data, size_t len);
+void bulk_add_task(void *param);
+void bulk_rm_task(void *param);
 
 
 
 #define RFID_NAMESPACE "rfid_db"
-
+extern const char *DEVICE_ID;
 
 #define KEY_MAX_LEN     16
 #define VALUE_MAX_LEN   32
+
+
+int contains_keyword(const char *data, size_t len, const char *key) {
+    size_t klen = strlen(key);
+
+    if (len < klen) return 0;
+
+    for (size_t i = 0; i <= len - klen; i++) {
+        if (memcmp(&data[i], key, klen) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 
 void data_parsing(const char *data, size_t data_len)
 {
@@ -31,6 +53,33 @@ void data_parsing(const char *data, size_t data_len)
 
     if (data == NULL || data_len == 0) {
         //printf("ERROR: Invalid input\n");
+        return;
+    
+    printf("RAW: %.*s\n", data_len, data);
+
+    }if (contains_keyword(data, data_len, "bulk_add") ||
+        contains_keyword(data, data_len, "BULK_ADD")) {
+        printf("BULK ADD FOUND\n");
+        // bulk_add_parse_and_store(data, data_len);
+        char *copy = malloc(data_len + 1);
+        memcpy(copy, data, data_len);
+        copy[data_len] = '\0';
+        xTaskCreate(bulk_add_task, "bulk_add_task", 8192, copy, 5, NULL);
+        printf("Completed BULK ADD\n");
+        // call your bulk add function here
+        return;
+    }
+
+    if (contains_keyword(data, data_len, "bulk_rm") ||
+        contains_keyword(data, data_len, "BULK_RM")) {
+        printf("BULK RM FOUND\n");
+        //bulk_rm_parse_and_remove(data, data_len);
+        char *copy = malloc(data_len + 1);
+        memcpy(copy, data, data_len);
+        copy[data_len] = '\0';
+        xTaskCreate(bulk_rm_task, "bulk_rm_task", 8192, copy, 5, NULL);
+        printf("Completed BULK RM\n");
+        // call your bulk remove function here
         return;
     }
 
@@ -203,5 +252,184 @@ uint32_t uid_to_decimal(const char *uid)
 
     return value;   // return decimal value directly
 }
+
+void bulk_add_task(void *param)
+{
+    char *data = (char *)param;
+    size_t len = strlen(data);
+
+    bulk_add_parse_and_store(data, len);
+
+    free(data);   // IMPORTANT
+    vTaskDelete(NULL);
+}
+
+void bulk_add_parse_and_store(const char *data, size_t len)
+{
+    const char *start = NULL;
+    const char *end = NULL;
+
+    /* ---------- Find { and } ---------- */
+    for (size_t i = 0; i < len; i++) {
+        if (data[i] == '{') start = &data[i + 1];
+        if (data[i] == '}') {
+            end = &data[i];
+            break;
+        }
+    }
+
+    if (!start || !end || start >= end) {
+        printf("Invalid BULK format\n");
+        return;
+    }
+
+    printf("Starting BULK ADD...\n");
+
+    char id[32];
+    int idx = 0;
+
+    for (const char *p = start; p <= end; p++) {
+
+        if (*p == ',' || p == end) {
+
+            id[idx] = '\0';
+
+            /* ---------- Trim ---------- */
+            char *clean = id;
+
+            // remove leading spaces
+            while (*clean == ' ') clean++;
+
+            // remove trailing spaces + braces
+            int len = strlen(clean);
+            while (len > 0 && 
+                  (clean[len-1] == ' ' || 
+                   clean[len-1] == '}' || 
+                   clean[len-1] == '{')) {
+                clean[len-1] = '\0';
+                len--;
+            }
+
+            /* ---------- Store ---------- */
+            if (len > 0) {
+                printf("Adding ID: %s\n", clean);
+                rfid_add(clean);
+            }
+
+            idx = 0;
+        }
+        else {
+            if (idx < sizeof(id) - 1) {
+                id[idx++] = *p;
+            }
+        }
+    }
+    char topic[64];
+
+    snprintf(topic, sizeof(topic), "esp32/ack_bulk/%s", DEVICE_ID);
+
+
+    esp_mqtt_client_publish(
+    mqtt_client,
+    topic,
+    "{\"status\":\"completed\",\"cmd\":\"bulk_add\"}",
+    0,
+    1,
+    0
+    );
+    printf("Completed BULK ADD\n");
+    }
+
+
+
+void bulk_rm_task(void *param)
+{
+    char *data = (char *)param;
+    size_t len = strlen(data);
+
+    bulk_rm_parse_and_remove(data, len);
+
+    free(data);
+    vTaskDelete(NULL);
+}
+
+void bulk_rm_parse_and_remove(const char *data, size_t len)
+{
+    const char *start = NULL;
+    const char *end = NULL;
+
+    /* ---------- Find { and } ---------- */
+    for (size_t i = 0; i < len; i++) {
+        if (data[i] == '{') start = &data[i + 1];
+        if (data[i] == '}') {
+            end = &data[i];
+            break;
+        }
+    }
+
+    if (!start || !end || start >= end) {
+        printf("Invalid BULK RM format\n");
+        return;
+    }
+
+    printf("Starting BULK RM...\n");
+
+    char id[32];
+    int idx = 0;
+
+    for (const char *p = start; p <= end; p++) {
+
+        if (*p == ',' || p == end) {
+
+            /* ❌ DO NOT add '}' */
+            id[idx] = '\0';
+
+            /* ---------- Trim ---------- */
+            char *clean = id;
+
+            // remove leading spaces
+            while (*clean == ' ') clean++;
+
+            // remove trailing spaces + braces
+            int len = strlen(clean);
+            while (len > 0 &&
+                  (clean[len-1] == ' ' ||
+                   clean[len-1] == '}' ||
+                   clean[len-1] == '{')) {
+                clean[len-1] = '\0';
+                len--;
+            }
+
+            /* ---------- Remove ---------- */
+            if (len > 0) {
+                printf("Removing ID: %s\n", clean);
+                rfid_remove(clean);
+            }
+
+            idx = 0;
+        }
+        else {
+            if (idx < sizeof(id) - 1) {
+                id[idx++] = *p;
+            }
+        }
+    }
+    //-----------
+    char topic[64];
+
+    snprintf(topic, sizeof(topic), "esp32/ack_bulk/%s", DEVICE_ID);
+    esp_mqtt_client_publish(
+    mqtt_client,
+    topic,
+    "{\"status\":\"completed\",\"cmd\":\"bulk_rm\"}",
+    0,
+    1,
+    0
+    );
+    //-------------
+
+    printf("Completed BULK RM\n");
+}
+
 
 //=============== CARD conversion END ================

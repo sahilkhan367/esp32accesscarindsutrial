@@ -11,6 +11,14 @@ from pydantic import BaseModel
 from datetime import datetime, timedelta
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, WebSocket
+import pandas as pd
+from fastapi import UploadFile, File
+from fastapi import HTTPException
+import threading
+
+acks = {}
+ack_events = {}
+ack_lock = threading.Lock()
 
 
 BROKER = "localhost"
@@ -64,12 +72,39 @@ def on_connect(client, userdata, flags, rc):
     client.subscribe(REQ_TOPIC)
     client.subscribe(STATUS_TOPIC)
     client.subscribe("esp32/ack/+")   # ✅ ACK topic
+    client.subscribe("esp32/ack_bulk/+")
 
 def on_message(client, userdata, msg):
     payload = msg.payload.decode()
     topic = msg.topic
 
     print(f"MQTT RX [{topic}]: {payload}")
+
+    # ✅ MUST be FIRST
+    if topic.startswith("esp32/ack_bulk/"):
+        device_id = topic.split("/")[-1].strip()
+
+        print("🔥 BULK ACK DETECTED")
+
+        try:
+            data = json.loads(payload)
+
+            if data.get("status") == "completed":
+                print("🔥 BULK COMPLETED MATCH")
+
+                if device_id in ack_events:
+                    ack_events[device_id].set()
+                    print("✅ EVENT SET SUCCESS")
+                else:
+                    print("❌ DEVICE NOT FOUND IN EVENTS")
+
+        except Exception as e:
+            print("Bulk parse error:", e)
+
+    # ✅ THEN normal ACK
+    elif topic.startswith("esp32/ack/"):
+        device_id = topic.split("/")[-1]
+        print(f"ACK from {device_id}: {payload}")
 
     if topic.startswith("esp32/ack/"):
         device_id = topic.split("/")[-1]
@@ -177,7 +212,25 @@ def on_message(client, userdata, msg):
 
         resp_topic = f"esp32/response/{device_id}"
         mqtt_client.publish(resp_topic, json.dumps(response), qos=1)
+    # if topic.startswith("esp32/ack_bulk/"):
+    #     device_id = topic.split("/")[-1].strip()
 
+    #     try:
+    #         data = json.loads(payload)
+
+    #         if data.get("status") == "completed":
+
+    #             with ack_lock:
+    #                 event = ack_events.get(device_id)
+
+    #             if event:
+    #                 print("🔥 SETTING EVENT OBJECT:", id(event))
+    #                 event.set()
+    #             else:
+    #                 print("❌ EVENT NOT FOUND")
+
+    #     except Exception as e:
+    #         print("ACK parse error:", e)
 
 # -------- MQTT INIT --------
 
@@ -213,7 +266,25 @@ def device_status(device_id: str):
 
 
 
+class CommandRequest(BaseModel):
+    cmd: str
 
+
+@app.post("/bulk/{device_id}")
+def send_command(device_id: str, request: CommandRequest):
+    topic = f"esp32/cmd/{device_id}"
+
+    mqtt_client.publish(
+        topic,
+        request.cmd,
+        qos=1
+    )
+
+    return {
+        "device": device_id,
+        "command": request.cmd,
+        "status": "sent"
+    }
 
 
 @app.get("/send/{device_id}")
@@ -239,7 +310,7 @@ def send_command(device_id: str, cmd: str):
 def get_ack(device_id: str):
     return {
         "device": device_id,
-        "ack": acks.get(device_id, "no_ack")
+        "ack": acks.pop(device_id, "no_ack")
     }
 
 FIRMWARE_DIR = "firmware"
@@ -608,6 +679,17 @@ def display():
 
 
 
+
+
+
+
+
+
+# //--------------------bulk update -------------------------------------
+
+
+
+
 # http://10.80.4.129:8000/attendance/multi
 # [
 #   {
@@ -626,3 +708,103 @@ def display():
 # sudo journalctl -u mainapp -f              //display the logs
 #sudo systemctl restart nginx               //restarts the nginx
 
+
+
+
+
+
+
+
+@app.post("/upload_excel/{device_id}")
+async def upload_excel(device_id: str, file: UploadFile = File(...)):
+
+    print("🔥 API HIT")
+
+    # ✅ Read Excel
+    df = pd.read_excel(file.file)
+
+    # ✅ Normalize column names (VERY IMPORTANT)
+    df.columns = df.columns.str.strip().str.lower()
+
+    print("📊 Columns detected:", df.columns.tolist())
+
+    # ✅ Check columns flexibly
+    if "rfid" not in df.columns or "gmail" not in df.columns:
+        return {
+            "error": f"Columns not found. Found columns: {df.columns.tolist()}"
+        }
+
+    # ✅ Create records (RFID + Gmail)
+    records = df[["rfid", "gmail"]].dropna().to_dict(orient="records")
+
+    # Clean values
+    for r in records:
+        r["rfid"] = str(r["rfid"]).strip()
+        r["gmail"] = str(r["gmail"]).strip()
+
+    CHUNK_SIZE = 80
+    chunks = [records[i:i + CHUNK_SIZE] for i in range(0, len(records), CHUNK_SIZE)]
+
+    topic = f"esp32/cmd/{device_id}"
+
+    print(f"📦 Total Records: {len(records)}")
+    print(f"📦 Total Chunks: {len(chunks)}")
+
+    # ✅ Event setup
+    if device_id not in ack_events:
+        ack_events[device_id] = threading.Event()
+
+    event = ack_events[device_id]
+
+    for i, chunk in enumerate(chunks):
+
+        # ✅ Extract RFID list
+        rfid_list = [item["rfid"] for item in chunk]
+
+        payload = "bulk_add={" + ",".join(rfid_list) + "}"
+
+        print(f"\n🚀 Sending chunk {i+1}/{len(chunks)}")
+
+        event.clear()
+
+        mqtt_client.publish(topic, payload, qos=1)
+
+        time.sleep(0.05)
+
+        print("⏳ Waiting for ACK...")
+
+        # ✅ Wait for ACK
+        if not event.wait(timeout=15):
+            print(f"❌ Timeout at chunk {i+1}")
+            return {"error": f"Timeout at chunk {i+1}"}
+
+        print(f"✅ ACK received for chunk {i+1}")
+
+        # ✅ Save chunk to MongoDB
+        print(f"💾 Saving chunk {i+1}...")
+
+        for item in chunk:
+            document = {
+                "device_id": device_id,
+                "RFID": item["rfid"],
+                "gmail": item["gmail"]
+            }
+
+            esp32_user.update_one(
+                {
+                    "device_id": document["device_id"],
+                    "RFID": document["RFID"],
+                    "gmail": document["gmail"]
+                },
+                {"$setOnInsert": document},
+                upsert=True
+            )
+
+        print(f"✅ Chunk {i+1} saved successfully")
+
+    return {
+        "device": device_id,
+        "total_records": len(records),
+        "chunks": len(chunks),
+        "status": "completed"
+    }

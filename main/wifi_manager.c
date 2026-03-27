@@ -13,7 +13,10 @@
 #include <time.h>
 #include "freertos/event_groups.h"
 #include "web_server.h"
+#include "nvs_flash.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #define WIFI_CONNECTED_BIT BIT0
 #define MAX_RETRY 5
@@ -28,6 +31,13 @@ EventGroupHandle_t wifi_event_group;
 
 static char saved_ssid[32];
 static char saved_pass[64];
+
+extern const char *DEVICE_ID;
+
+static const char *RESET_TAG  = "RESET_TASK";
+void sunday_reset_task(void *arg);
+static void save_last_reset_day(int day);
+static int load_last_reset_day();
 
 
 
@@ -84,12 +94,18 @@ bool wifi_get_connected_ssid(char *ssid, size_t len)
 
 
 //-------------------------------
-
 static void initialize_sntp(void)
 {
+    // ✅ ADD THIS GUARD
+    if (esp_sntp_enabled()) {
+        ESP_LOGI("SNTP", "SNTP already running, skipping init");
+        return;
+    }
+
     ESP_LOGI("SNTP", "Initializing SNTP");
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_setservername(0, "time.google.com");
+    esp_sntp_setservername(1, "pool.ntp.org");
     esp_sntp_init();
 }
 
@@ -114,6 +130,9 @@ static void wifi_event_handler(void *arg,
         xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);
         gpio_set_level(WIFI_LED_GPIO, 0); // LED ON
         ESP_LOGI(TAG, "STA connected");
+        setenv("TZ", "IST-5:30", 1);
+        tzset();
+        vTaskDelay(2000 / portTICK_PERIOD_MS);
         initialize_sntp();
 
         time_t now = 0;
@@ -122,16 +141,42 @@ static void wifi_event_handler(void *arg,
         int retry = 0;
         const int retry_count = 10;
 
-        while (timeinfo.tm_year < (2016 - 1900) && retry < retry_count) {
-            ESP_LOGI("SNTP", "Waiting for time sync... (%d/%d)", retry + 1, retry_count);
-            vTaskDelay(2000 / portTICK_PERIOD_MS);
+        while (retry < retry_count) {
+    
             time(&now);
             localtime_r(&now, &timeinfo);
+    
+            if (timeinfo.tm_year >= (2020 - 1900)) {
+                ESP_LOGI("SNTP", "Time synchronized");
+                break;
+            }
+    
+            ESP_LOGI("SNTP", "Waiting for time sync... (%d/%d)", retry + 1, retry_count);
+            vTaskDelay(2000 / portTICK_PERIOD_MS);
             retry++;
         }
-        
-        ESP_LOGI("SNTP", "Time synchronized");
-        
+    
+        // ✅ Check if sync actually happened
+        if (timeinfo.tm_year < (2020 - 1900)) {
+            ESP_LOGE("SNTP", "Time sync FAILED");
+        } else {
+            ESP_LOGI("TIME", "%02d-%02d-%04d %02d:%02d:%02d",
+                     timeinfo.tm_mday,
+                     timeinfo.tm_mon + 1,
+                     timeinfo.tm_year + 1900,
+                     timeinfo.tm_hour,
+                     timeinfo.tm_min,
+                     timeinfo.tm_sec);
+            xTaskCreate(
+                sunday_reset_task,
+                "sunday_reset",
+                4096,
+                NULL,
+                5,
+                NULL
+            );
+        }
+    
         // Now start MQTT
     }
 }
@@ -256,15 +301,23 @@ void wifi_manager_init(void)
     wifi_event_handler,
     NULL));
 
-    wifi_config_t ap_cfg = {
-        .ap = {
-            .ssid = "ESP32_SETUP_002",
-            .password = "12345678",
-            .channel = 0,   // AUTO
-            .max_connection = 4,
-            .authmode = WIFI_AUTH_WPA_WPA2_PSK
-        }
-    };
+
+    wifi_config_t ap_cfg = {0};   // initialize empty
+    // Build SSID dynamically
+    snprintf((char *)ap_cfg.ap.ssid,
+             sizeof(ap_cfg.ap.ssid),
+             "accesshub_%s",
+             DEVICE_ID);
+    
+    // Set password
+    strcpy((char *)ap_cfg.ap.password, "12345678");
+    
+    // Other configs
+    ap_cfg.ap.channel = 0;
+    ap_cfg.ap.max_connection = 4;
+    ap_cfg.ap.authmode = WIFI_AUTH_WPA_WPA2_PSK;
+
+    
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
@@ -286,3 +339,74 @@ bool wifi_is_sta_connected(void)
 {
     return xEventGroupGetBits(wifi_event_group) & WIFI_CONNECTED_BIT;
 }
+
+
+
+///-----------------------------------------------weekly reset on sunday-------------------
+
+
+
+// ---------- NVS Helpers ----------
+static int load_last_reset_day()
+{
+    nvs_handle_t nvs;
+    int32_t last_day = -1;
+
+    if (nvs_open("sys", NVS_READONLY, &nvs) == ESP_OK) {
+        nvs_get_i32(nvs, "last_rst", &last_day);
+        nvs_close(nvs);
+    }
+
+    return last_day;
+}
+
+static void save_last_reset_day(int day)
+{
+    nvs_handle_t nvs;
+
+    if (nvs_open("sys", NVS_READWRITE, &nvs) == ESP_OK) {
+        nvs_set_i32(nvs, "last_rst", day);
+        nvs_commit(nvs);
+        nvs_close(nvs);
+    }
+}
+
+// ---------- Reset Task ----------
+void sunday_reset_task(void *arg)
+{
+    struct tm timeinfo;
+    int last_reset_day = load_last_reset_day();
+
+    while (1)
+    {
+        time_t now;
+        time(&now);
+        localtime_r(&now, &timeinfo);
+
+        int today = timeinfo.tm_yday;
+
+        // ✅ Condition: Sunday (0) + 5 AM + within 5 min window
+        if (timeinfo.tm_wday == 5 &&
+            timeinfo.tm_hour == 20 &&
+            timeinfo.tm_min == 24 
+         )  // 2-minute window
+        //    last_reset_day != today
+        
+        {
+            ESP_LOGW(RESET_TAG , "Sunday 5AM reset triggered!");
+
+            // Save reset day to avoid duplicate resets
+            save_last_reset_day(today);
+
+            vTaskDelay(2000 / portTICK_PERIOD_MS); // small delay
+
+            esp_restart();
+        }
+
+        vTaskDelay(30000 / portTICK_PERIOD_MS); // check every 30 sec
+    }
+}
+
+
+
+
