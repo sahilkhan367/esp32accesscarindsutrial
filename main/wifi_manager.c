@@ -386,10 +386,10 @@ void sunday_reset_task(void *arg)
         int today = timeinfo.tm_yday;
 
         // ✅ Condition: Sunday (0) + 5 AM + within 5 min window
-        if (timeinfo.tm_wday == 5 &&
-            timeinfo.tm_hour == 20 &&
-            timeinfo.tm_min == 24 
-         )  // 2-minute window
+        if (timeinfo.tm_wday == 0 &&
+            timeinfo.tm_hour == 5 &&
+            timeinfo.tm_min == 30 &&
+            last_reset_day != today)  // 2-minute window
         //    last_reset_day != today
         
         {
