@@ -73,6 +73,7 @@ def on_connect(client, userdata, flags, rc):
     client.subscribe(STATUS_TOPIC)
     client.subscribe("esp32/ack/+")   # ✅ ACK topic
     client.subscribe("esp32/ack_bulk/+")
+    client.subscribe("esp32/ack_bulk_RM_ALL/+")
 
 def on_message(client, userdata, msg):
     payload = msg.payload.decode()
@@ -166,6 +167,7 @@ def on_message(client, userdata, msg):
         "status": data["status"],
         "date": now_local.strftime("%d-%m-%Y"),
         "time": now_local.strftime("%H:%M:%S"),
+        "version": data.get("Version", "unknown"),
         })
         return
 
@@ -231,6 +233,16 @@ def on_message(client, userdata, msg):
 
     #     except Exception as e:
     #         print("ACK parse error:", e)
+
+    if topic.startswith("esp32/ack_bulk_RM_ALL"):
+        device_id = topic.split("/")[-1].strip()
+    
+        if data.get("status") == "success":
+            result = esp32_user.delete_many({
+                "device_id": device_id
+            })
+    
+            print(f"[BULK_RM] Device: {device_id}, Deleted: {result.deleted_count}")
 
 # -------- MQTT INIT --------
 

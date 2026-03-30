@@ -9,6 +9,8 @@ uint32_t uid_to_decimal(const char *uid);
 
 
 //void print_number(int num);   // if want to writ eone more function
+#include "mqtt_client.h"   // required for esp_mqtt_client_handle_t
+void erase_rfid_data_and_restart(esp_mqtt_client_handle_t client);
 
 
 void rfid_add(const char *id);

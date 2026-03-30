@@ -29,9 +29,12 @@
 #include "esp_crt_bundle.h"
 #include "esp_sntp.h"
 #include <time.h>
+#include "helper_func.h"
 
 
-const char *DEVICE_ID = "esp32_007";
+const char *DEVICE_ID = "esp32_001";
+
+const char *VERSION = "1.3V";
 
 /* ===================== GPIO & UART DEFINES ===================== */
 
@@ -249,9 +252,9 @@ static void mqtt_event_handler(void *arg,
     {
         ESP_LOGI(TAG, "MQTT connected");
 
-        char sub_topic[64];
-        char pub_topic[64];
-        char payload[128];
+        char sub_topic[128];
+        char pub_topic[128];
+        char payload[256];
 
         // Create subscribe topic
         sprintf(sub_topic, "esp32/cmd/%s", DEVICE_ID);
@@ -260,7 +263,7 @@ static void mqtt_event_handler(void *arg,
         sprintf(pub_topic, "esp32/status/%s", DEVICE_ID);
 
         // Create JSON payload
-        sprintf(payload, "{\"device_id\":\"%s\",\"status\":\"online\"}", DEVICE_ID);
+        sprintf(payload,"{\"device_id\":\"%s\",\"status\":\"online\",\"Version\":\"%s\"}",DEVICE_ID, VERSION);
 
         // Subscribe
         esp_mqtt_client_subscribe(event->client, sub_topic, 1);
@@ -336,12 +339,28 @@ static void mqtt_event_handler(void *arg,
             ESP_LOGI(TAG, "OTA command received");
             start_ota_update();
         }
+        //-----------------------------------------------------------
+        if (event->data_len == 15 && strncmp(event->data, "BULK_DELETE_ALL", 15) == 0)
+        {
+            ESP_LOGI(TAG, "BULK_RM this is the one command received");
+        
+            erase_rfid_data_and_restart(event->client);   // ✅ pass client directly
+        }
+        
+        //-------------------------------------------------------------
         break;
 
     default:
         break;
     }
 }
+
+
+
+
+
+
+
 
 //==================storing the data=====================
 
@@ -365,7 +384,7 @@ void app_main(void)
     nvs_flash_init();
     wifi_manager_init();
     extern EventGroupHandle_t wifi_event_group;
-#define WIFI_CONNECTED_BIT BIT0
+    #define WIFI_CONNECTED_BIT BIT0
 
     xEventGroupWaitBits(
         wifi_event_group,

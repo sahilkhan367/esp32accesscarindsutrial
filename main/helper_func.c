@@ -10,6 +10,12 @@
 
 #include "esp_system.h" //for esp32 reset
 #include "mqtt_client.h"
+#include "helper_func.h"
+#include "esp_log.h"
+#include "esp_system.h"
+
+static const char *TAG = "HELPER";
+
 
 extern esp_mqtt_client_handle_t mqtt_client;
 
@@ -22,6 +28,7 @@ void bulk_add_parse_and_store(const char *data, size_t len);
 void bulk_rm_parse_and_remove(const char *data, size_t len);
 void bulk_add_task(void *param);
 void bulk_rm_task(void *param);
+void erase_rfid_data_and_restart(esp_mqtt_client_handle_t client);
 
 
 
@@ -135,11 +142,8 @@ void data_parsing(const char *data, size_t data_len)
     strcmp(value, "RESET") == 0) {
     esp_restart();
     }
-    else if (strcmp(key, "UNLOCK") == 0 &&
-    strcmp(value, "ALL") == 0) {
-    //esp_restart();
-    }
 }
+
 
 
 void rfid_add(const char *id)
@@ -433,3 +437,51 @@ void bulk_rm_parse_and_remove(const char *data, size_t len)
 
 
 //=============== CARD conversion END ================
+
+
+
+
+void erase_rfid_data_and_restart(esp_mqtt_client_handle_t client)
+{
+    ESP_LOGI(TAG, "STEP 1: Function entered");
+
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(RFID_NAMESPACE, NVS_READWRITE, &nvs);
+
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "STEP 2: Failed to open NVS");
+        return;
+    }
+
+    ESP_LOGI(TAG, "STEP 3: NVS opened");
+
+    nvs_erase_all(nvs);
+    ESP_LOGI(TAG, "STEP 4: NVS erased");
+
+    nvs_commit(nvs);
+    ESP_LOGI(TAG, "STEP 5: NVS committed");
+
+    nvs_close(nvs);
+
+    ESP_LOGI(TAG, "STEP 6: Sending ACK");
+
+    char ack_topic[64];
+    char ack_msg[128];
+
+    snprintf(ack_topic, sizeof(ack_topic), "esp32/ack_bulk_RM_ALL/%s", DEVICE_ID);
+
+    snprintf(ack_msg, sizeof(ack_msg),
+             "{\"device_id\":\"%s\",\"status\":\"success\"}",
+             DEVICE_ID);
+
+    esp_mqtt_client_publish(client, ack_topic, ack_msg, strlen(ack_msg), 1, 0);
+
+    ESP_LOGI(TAG, "STEP 7: ACK sent");
+
+    vTaskDelay(pdMS_TO_TICKS(1000));
+
+    ESP_LOGI(TAG, "STEP 8: Restarting");
+
+    // esp_restart();
+}
