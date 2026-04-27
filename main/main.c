@@ -34,7 +34,7 @@
 
 const char *DEVICE_ID = "esp32_001";
 
-const char *VERSION = "1.3V";
+const char *VERSION = "1.4V";
 
 /* ===================== GPIO & UART DEFINES ===================== */
 
@@ -123,7 +123,7 @@ void mqtt_publish(const char *data, const char *type)
         "esp32/request",
         json,
         0,
-        1,
+        2,
         0);
 
     ESP_LOGI(TAG, "MQTT published: %s", json);
