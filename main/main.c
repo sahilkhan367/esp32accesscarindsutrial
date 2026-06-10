@@ -32,9 +32,9 @@
 #include "helper_func.h"
 
 
-const char *DEVICE_ID = "esp32_001";
+const char *DEVICE_ID = "esp32_029";
 
-const char *VERSION = "1.4V";
+const char *VERSION = "1.5V";
 
 /* ===================== GPIO & UART DEFINES ===================== */
 
@@ -47,7 +47,7 @@ const char *VERSION = "1.4V";
 #define UART1_RX 27
 
 
-#define OTA_BASE_URL "https://esp32accesshub.novelinfra.com/firmware"
+#define OTA_BASE_URL "https://nowaccesshub.novelinfra.com/firmware"
 
 static const char *TAG = "ESP32_MQTT";
 esp_mqtt_client_handle_t mqtt_client;
@@ -135,6 +135,77 @@ QueueHandle_t uart1_queue;
 QueueHandle_t uart2_queue;
 
 uint32_t result;
+
+/*===========================Hourly logs===========================*/
+
+int get_heartbeat_minute(void)
+{
+    int id;
+
+    sscanf(DEVICE_ID, "esp32_%d", &id);
+
+    return ((id - 1) % 60) + 1;
+}
+
+
+void send_heartbeat(void)
+{
+    if (!mqtt_client)
+        return;
+
+    char json[128];
+
+    snprintf(
+        json,
+        sizeof(json),
+        "{\"device_id\":\"%s\",\"status\":\"active\"}",
+        DEVICE_ID);
+
+    esp_mqtt_client_publish(
+        mqtt_client,
+        "esp32/heartbeat",
+        json,
+        0,
+        2,
+        0);
+
+    ESP_LOGI("HEARTBEAT", "%s", json);
+}
+
+
+void heartbeat_task(void *pvParameters)
+{
+    int last_hour_sent = -1;
+
+    uint8_t heartbeat_minute = get_heartbeat_minute();
+
+    ESP_LOGI(
+        "HEARTBEAT",
+        "Device will send heartbeat at minute %d every hour",
+        heartbeat_minute);
+
+    while (1)
+    {
+        time_t now;
+        struct tm timeinfo;
+
+        time(&now);
+        localtime_r(&now, &timeinfo);
+
+        if (timeinfo.tm_min == heartbeat_minute &&
+            timeinfo.tm_hour != last_hour_sent)
+        {
+            last_hour_sent = timeinfo.tm_hour;
+
+            send_heartbeat();
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(10000));
+    }
+}
+
+
+
 
 /* ===================== UART TASKS ===================== */
 
@@ -391,7 +462,7 @@ void app_main(void)
         WIFI_CONNECTED_BIT,
         false,
         true,
-        portMAX_DELAY);
+        pdMS_TO_TICKS(10000));
 
     /* ---------- UART2 (Reader 1) ---------- */
     uart_config_t uart2_config = {
@@ -450,6 +521,7 @@ void app_main(void)
     /* ---------- Create Tasks ---------- */
     xTaskCreate(uart2_task, "uart2_task", 4096, NULL, 5, NULL);
     xTaskCreate(uart1_task, "uart1_task", 4096, NULL, 5, NULL);
+    xTaskCreate(heartbeat_task, "heartbeat_task", 4096, NULL, 5, NULL);
 
     /* ---------- MQTT Setup ---------- */
     ESP_LOGI(TAG, "Starting ESP32 MQTT test");
@@ -466,7 +538,7 @@ void app_main(void)
              DEVICE_ID);
 
     esp_mqtt_client_config_t mqtt_cfg = {
-        .broker.address.uri = "wss://esp32accesshub.novelinfra.com/mqtt",
+        .broker.address.uri = "wss://nowaccesshub.novelinfra.com/mqtt",
         .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
 
         .session.last_will.topic = will_topic,

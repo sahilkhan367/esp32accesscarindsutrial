@@ -63,6 +63,7 @@ esp32_health = db["esp32_health"]       # collection name
 esp32_user = db["esp32_user"]
 esp32_logs = db["esp32_logs"]
 esp32_details =db["esp32_details"]
+esp32_hourly_logs = db["esp32_hourly_logs"]
 
 
 # -------- MQTT CALLBACKS --------
@@ -74,7 +75,7 @@ def on_connect(client, userdata, flags, rc):
     client.subscribe("esp32/ack/+")   # ✅ ACK topic
     client.subscribe("esp32/ack_bulk/+")
     client.subscribe("esp32/ack_bulk_RM_ALL/+")
-
+    client.subscribe("esp32/heartbeat")
 def on_message(client, userdata, msg):
     payload = msg.payload.decode()
     topic = msg.topic
@@ -82,6 +83,21 @@ def on_message(client, userdata, msg):
     print(f"MQTT RX [{topic}]: {payload}")
 
     # ✅ MUST be FIRST
+    if topic == "esp32/heartbeat":
+        print(f"HEARTBEAT RECEIVED: {payload}")
+        try:
+            data = json.loads(payload)
+            now = datetime.now()
+            esp32_hourly_logs.insert_one({
+                "device_id": data["device_id"],
+                "status": data["status"],
+                "date": now.strftime("%d-%m-%Y"),
+                "time": now.strftime("%H:%M:%S")
+            })
+            print("Heartbeat saved")
+        except Exception as e:
+            print("Heartbeat error:", e)
+
     if topic.startswith("esp32/ack_bulk/"):
         device_id = topic.split("/")[-1].strip()
 
@@ -243,6 +259,8 @@ def on_message(client, userdata, msg):
             })
     
             print(f"[BULK_RM] Device: {device_id}, Deleted: {result.deleted_count}")
+    
+    
 
 # -------- MQTT INIT --------
 
