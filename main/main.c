@@ -32,7 +32,7 @@
 #include "helper_func.h"
 
 
-const char *DEVICE_ID = "esp32_029";
+const char *DEVICE_ID = "esp32_035";
 
 const char *VERSION = "1.5V";
 
@@ -47,7 +47,7 @@ const char *VERSION = "1.5V";
 #define UART1_RX 27
 
 
-#define OTA_BASE_URL "https://nowaccesshub.novelinfra.com/firmware"
+#define OTA_BASE_URL "https://esp32accesshub.novelinfra.com/firmware"
 
 static const char *TAG = "ESP32_MQTT";
 esp_mqtt_client_handle_t mqtt_client;
@@ -538,7 +538,7 @@ void app_main(void)
              DEVICE_ID);
 
     esp_mqtt_client_config_t mqtt_cfg = {
-        .broker.address.uri = "wss://nowaccesshub.novelinfra.com/mqtt",
+        .broker.address.uri = "wss://esp32accesshub.novelinfra.com/mqtt",
         .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
 
         .session.last_will.topic = will_topic,

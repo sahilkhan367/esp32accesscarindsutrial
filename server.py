@@ -838,3 +838,77 @@ async def upload_excel(device_id: str, file: UploadFile = File(...)):
         "chunks": len(chunks),
         "status": "completed"
     }
+
+
+##==========Health status hourly log webpage api=======================================
+esp32_details_collection = db["esp32_details"]
+
+from pydantic import BaseModel
+
+class LogRequest(BaseModel):
+    date: str
+
+
+@app.get("/get_nom_hourly_logs")
+async def get_nom_hourly_logs(date: str):
+
+    devices = list(
+        esp32_details_collection.find(
+            {},
+            {
+                "_id": 0,
+                "device_id": 1,
+                "site": 1,
+                "floor": 1,
+                "cabin": 1
+            }
+        )
+    )
+
+    device_map = {
+        d["device_id"]: d for d in devices
+    }
+
+    device_ids = list(device_map.keys())
+
+    logs = list(
+        esp32_hourly_logs.find(
+            {
+                "device_id": {"$in": device_ids},
+                "date": date
+            },
+            {
+                "_id": 0
+            }
+        )
+    )
+
+    # Group logs by device
+    logs_by_device = {}
+
+    for log in logs:
+        device_id = log["device_id"]
+
+        if device_id not in logs_by_device:
+            logs_by_device[device_id] = []
+
+        logs_by_device[device_id].append(log)
+
+    result = []
+
+    # Return ALL devices
+    for device in devices:
+
+        device_id = device["device_id"]
+
+        result.append({
+            **device,
+            "logs": logs_by_device.get(device_id, [])
+        })
+
+    return {
+        "status": True,
+        "date": date,
+        "count": len(result),
+        "data": result
+    }
