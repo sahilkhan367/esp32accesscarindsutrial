@@ -13,6 +13,7 @@
 #include "helper_func.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include <time.h>
 
 static const char *TAG = "HELPER";
 
@@ -29,6 +30,10 @@ void bulk_rm_parse_and_remove(const char *data, size_t len);
 void bulk_add_task(void *param);
 void bulk_rm_task(void *param);
 void erase_rfid_data_and_restart(esp_mqtt_client_handle_t client);
+void save_offline_log(uint32_t uid, const char *reader, const char *direction);
+void print_offline_logs(void);
+void upload_offline_logs(void);
+void send_offline_log_to_server(const offline_log_t *log);
 
 
 
@@ -484,4 +489,219 @@ void erase_rfid_data_and_restart(esp_mqtt_client_handle_t client)
     ESP_LOGI(TAG, "STEP 8: Restarting");
 
     // esp_restart();
+}
+
+//=============================offline logs=========================================
+
+void save_offline_log(uint32_t uid,
+                      const char *reader,
+                      const char *direction)
+{
+    nvs_handle_t handle;
+
+    if (nvs_open("offline_logs", NVS_READWRITE, &handle) != ESP_OK)
+        return;
+
+    uint32_t tail = 0;
+
+    nvs_get_u32(handle, "tail", &tail);
+
+    char key[20];
+    snprintf(key,
+             sizeof(key),
+             "log_%lu",
+             (unsigned long)tail);
+
+    offline_log_t log;
+
+    memset(&log, 0, sizeof(log));
+
+    log.uid = uid;
+
+    strcpy(log.reader, reader);
+    strcpy(log.direction, direction);
+    strcpy(log.device_id, DEVICE_ID);
+
+    log.timestamp = (uint32_t)time(NULL);
+
+    nvs_set_blob(handle,
+                 key,
+                 &log,
+                 sizeof(log));
+
+    tail++;
+
+    nvs_set_u32(handle, "tail", tail);
+
+    nvs_commit(handle);
+
+    nvs_close(handle);
+}
+
+
+
+
+
+
+
+void print_offline_logs(void)
+{
+    nvs_handle_t handle;
+
+    if (nvs_open("offline_logs",
+                 NVS_READONLY,
+                 &handle) != ESP_OK)
+        return;
+
+    uint32_t head = 0;
+    uint32_t tail = 0;
+
+    nvs_get_u32(handle, "head", &head);
+    nvs_get_u32(handle, "tail", &tail);
+
+    printf("\n===== OFFLINE LOGS =====\n");
+
+    for (uint32_t i = head; i < tail; i++)
+    {
+        char key[20];
+
+        snprintf(key,
+                 sizeof(key),
+                 "log_%lu",
+                 (unsigned long)i);
+
+        offline_log_t log;
+        size_t size = sizeof(log);
+
+        if (nvs_get_blob(handle,
+                         key,
+                         &log,
+                         &size) == ESP_OK)
+        {
+            time_t ts = log.timestamp;
+
+            struct tm timeinfo;
+
+            localtime_r(&ts,
+                        &timeinfo);
+
+            char time_str[32];
+
+            strftime(time_str,
+                     sizeof(time_str),
+                     "%Y-%m-%d %H:%M:%S",
+                     &timeinfo);
+
+            printf(
+                "d_id:%s UID:%lu DIR:%s Time:%s\n",
+                log.device_id,
+                (unsigned long)log.uid,
+                log.direction,
+                time_str);
+        }
+    }
+
+    printf("========================\n");
+
+    nvs_close(handle);
+}
+
+
+
+void upload_offline_logs(void)
+{
+    nvs_handle_t handle;
+
+    if (nvs_open("offline_logs",
+                 NVS_READWRITE,
+                 &handle) != ESP_OK)
+        return;
+
+    uint32_t head = 0;
+    uint32_t tail = 0;
+
+    nvs_get_u32(handle, "head", &head);
+    nvs_get_u32(handle, "tail", &tail);
+
+    ESP_LOGI(
+        "OFFLINE",
+        "head=%lu tail=%lu",
+        (unsigned long)head,
+        (unsigned long)tail);
+
+    while (head < tail)
+    {
+        char key[20];
+
+        snprintf(key,
+                 sizeof(key),
+                 "log_%lu",
+                 (unsigned long)head);
+
+        offline_log_t log;
+        size_t size = sizeof(log);
+
+        if (nvs_get_blob(handle,
+                         key,
+                         &log,
+                         &size) != ESP_OK)
+        {
+            head++;
+
+            nvs_set_u32(handle,
+                        "head",
+                        head);
+
+            continue;
+        }
+
+        send_offline_log_to_server(&log);
+
+        ESP_LOGI(
+            "OFFLINE",
+            "Uploaded %s",
+            key);
+
+        nvs_erase_key(handle, key);
+
+        head++;
+
+        nvs_set_u32(handle,
+                    "head",
+                    head);
+
+        nvs_commit(handle);
+
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    nvs_close(handle);
+}
+
+
+void send_offline_log_to_server(const offline_log_t *log)
+{
+    char json[256];
+
+    snprintf(
+        json,
+        sizeof(json),
+        "{\"device_id\":\"%s\","
+        "\"uid\":%lu,"
+        "\"reader\":\"%s\","
+        "\"direction\":\"%s\","
+        "\"timestamp\":%lu}",
+        log->device_id,
+        (unsigned long)log->uid,
+        log->reader,
+        log->direction,
+        (unsigned long)log->timestamp);
+
+    esp_mqtt_client_publish(
+        mqtt_client,
+        "esp32/offline_logs",
+        json,
+        0,
+        2,
+        0);
 }

@@ -107,6 +107,9 @@ static void initialize_sntp(void)
     esp_sntp_setservername(0, "time.google.com");
     esp_sntp_setservername(1, "pool.ntp.org");
     esp_sntp_init();
+
+    setenv("TZ", "IST-5:30", 1);
+    tzset();
 }
 
 

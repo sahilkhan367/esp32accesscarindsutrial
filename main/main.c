@@ -30,11 +30,12 @@
 #include "esp_sntp.h"
 #include <time.h>
 #include "helper_func.h"
+#include "esp_wifi.h"
 
 
-const char *DEVICE_ID = "esp32_035";
+const char *DEVICE_ID = "esp32_001";
 
-const char *VERSION = "1.5V";
+const char *VERSION = "1.6V";
 
 /* ===================== GPIO & UART DEFINES ===================== */
 
@@ -47,10 +48,12 @@ const char *VERSION = "1.5V";
 #define UART1_RX 27
 
 
-#define OTA_BASE_URL "https://esp32accesshub.novelinfra.com/firmware"
+#define OTA_BASE_URL "https://nbpaccesshub.novelinfra.com/firmware"
 
 static const char *TAG = "ESP32_MQTT";
 esp_mqtt_client_handle_t mqtt_client;
+
+wifi_ap_record_t ap_info;
 
 //===============OTA update =======================
 
@@ -256,7 +259,19 @@ void uart2_task(void *arg)
                     relay_task(NULL);
                     green_led_1_on_500ms();
                     buzzer_1_beep();
-                    send_uart_scan_to_server("reader1", result, "IN");
+                    if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+                        printf("Connected to WiFi\n");
+                        send_uart_scan_to_server("reader1", result, "IN");
+                    } else {
+                        printf("Not Connected\n");
+                        save_offline_log(
+                            result,
+                            "reader2",
+                            "IN"
+                        );
+                        print_offline_logs();
+                    }
+                    // send_uart_scan_to_server("reader1", result, "IN");
                 }
                 else
                 {
@@ -295,7 +310,24 @@ void uart1_task(void *arg)
                     relay_task(NULL);
                     green_led_2_on_500ms();
                     buzzer_2_beep();
-                    send_uart_scan_to_server("reader2", result, "OUT");
+                    if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+                        printf("Connected to WiFi\n");
+                        send_uart_scan_to_server("reader2", result, "OUT");
+                    } else {
+                        printf("Not Connected\n");
+                        save_offline_log(
+                            result,
+                            "reader2",
+                            "OUT"
+                        );
+                        print_offline_logs();
+                        nvs_stats_t stats;
+                        nvs_get_stats(NULL, &stats);
+                        ESP_LOGI("NVS", "Total entries: %d", stats.total_entries);
+                        ESP_LOGI("NVS", "Used entries: %d", stats.used_entries);
+                        ESP_LOGI("NVS", "Free entries: %d", stats.free_entries);
+                    }
+                    // send_uart_scan_to_server("reader2", result, "OUT");
                 }
                 else
                 {
@@ -341,6 +373,7 @@ static void mqtt_event_handler(void *arg,
 
         // Publish
         esp_mqtt_client_publish(event->client, pub_topic, payload, 0, 1, 1);
+        upload_offline_logs();
 
         break;
     }
@@ -538,7 +571,7 @@ void app_main(void)
              DEVICE_ID);
 
     esp_mqtt_client_config_t mqtt_cfg = {
-        .broker.address.uri = "wss://esp32accesshub.novelinfra.com/mqtt",
+        .broker.address.uri = "wss://nbpaccesshub.novelinfra.com/mqtt",
         .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
 
         .session.last_will.topic = will_topic,
