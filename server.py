@@ -76,6 +76,10 @@ def on_connect(client, userdata, flags, rc):
     client.subscribe("esp32/ack_bulk/+")
     client.subscribe("esp32/ack_bulk_RM_ALL/+")
     client.subscribe("esp32/heartbeat")
+    client.subscribe("esp32/offline_logs")
+
+
+
 def on_message(client, userdata, msg):
     payload = msg.payload.decode()
     topic = msg.topic
@@ -83,6 +87,49 @@ def on_message(client, userdata, msg):
     print(f"MQTT RX [{topic}]: {payload}")
 
     # ✅ MUST be FIRST
+    if topic == "esp32/offline_logs":
+
+        try:
+            data = json.loads(payload)
+    
+            device_id = data["device_id"]
+            RFID = str(data["uid"])
+            direction = data["direction"]
+    
+            user = esp32_user.find_one(
+                {
+                    "device_id": device_id,
+                    "RFID": RFID
+                },
+                {
+                    "_id": 0,
+                    "gmail": 1
+                }
+            )
+    
+            gmail = user["gmail"] if user else None
+    
+            event_time = datetime.fromtimestamp(
+                data["timestamp"]
+            )
+    
+            log_document = {
+                "device_id": device_id,
+                "RFID": RFID,
+                "direction": direction,
+                "gmail": gmail,
+                "date": event_time.strftime("%d-%m-%Y"),
+                "time": event_time.strftime("%H:%M:%S"),
+                "offline_log": True
+            }
+    
+            esp32_logs.insert_one(log_document)
+    
+            print("Offline RFID log saved")
+    
+        except Exception as e:
+            print("Offline log save error:", e)
+
     if topic == "esp32/heartbeat":
         print(f"HEARTBEAT RECEIVED: {payload}")
         try:
