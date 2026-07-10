@@ -606,6 +606,44 @@ void print_offline_logs(void)
     nvs_close(handle);
 }
 
+void upload_offline_logs_task(void *pvParameters)
+{
+    offline_upload_running = true;
+
+    ESP_LOGI("OFFLINE", "Waiting before upload...");
+
+    vTaskDelay(pdMS_TO_TICKS(100000));
+
+    ESP_LOGI("OFFLINE", "Offline upload task started");
+
+    upload_offline_logs();
+
+    ESP_LOGI("OFFLINE", "Offline upload task finished");
+
+    offline_upload_running = false;
+
+    vTaskDelete(NULL);
+}
+
+
+bool offline_logs_available(void)
+{
+    nvs_handle_t handle;
+
+    if (nvs_open("offline_logs", NVS_READONLY, &handle) != ESP_OK)
+        return false;
+
+    uint32_t head = 0, tail = 0;
+
+    nvs_get_u32(handle, "head", &head);
+    nvs_get_u32(handle, "tail", &tail);
+
+    nvs_close(handle);
+
+    return (head < tail);
+}
+
+
 
 
 void upload_offline_logs(void)
@@ -666,13 +704,22 @@ void upload_offline_logs(void)
 
         head++;
 
-        nvs_set_u32(handle,
-                    "head",
-                    head);
+        nvs_set_u32(handle,"head",head);
 
         nvs_commit(handle);
 
         vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    if (head == tail)
+    {
+        ESP_LOGI("OFFLINE", "Offline queue empty. Resetting head/tail.");
+    
+        head = 0;
+        tail = 0;
+    
+        nvs_set_u32(handle, "head", head);
+        nvs_set_u32(handle, "tail", tail);
+        nvs_commit(handle);
     }
 
     nvs_close(handle);
@@ -697,11 +744,12 @@ void send_offline_log_to_server(const offline_log_t *log)
         log->direction,
         (unsigned long)log->timestamp);
 
-    esp_mqtt_client_publish(
+    int msg_id_i = esp_mqtt_client_publish(
         mqtt_client,
         "esp32/offline_logs",
         json,
         0,
         2,
         0);
+        ESP_LOGI("OFFLINE", "Publish msg_id=%d", msg_id_i);
 }

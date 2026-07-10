@@ -35,7 +35,7 @@
 
 const char *DEVICE_ID = "esp32_001";
 
-const char *VERSION = "1.6V";
+const char *VERSION = "1.7V";
 
 /* ===================== GPIO & UART DEFINES ===================== */
 
@@ -48,10 +48,12 @@ const char *VERSION = "1.6V";
 #define UART1_RX 27
 
 
-#define OTA_BASE_URL "https://nbpaccesshub.novelinfra.com/firmware"
+#define OTA_BASE_URL "https://nobaccesshub.novelinfra.com/firmware"
 
 static const char *TAG = "ESP32_MQTT";
 esp_mqtt_client_handle_t mqtt_client;
+volatile bool mqtt_connected = false;
+volatile bool offline_upload_running = false;
 
 wifi_ap_record_t ap_info;
 
@@ -255,21 +257,22 @@ void uart2_task(void *arg)
                 // printf("%lu\n", (unsigned long)result);
                 if (rfid_exists(result))
                 {
-                    printf("ACCESS GRANTED\n");
+                    //printf("ACCESS GRANTED\n");
                     relay_task(NULL);
                     green_led_1_on_500ms();
                     buzzer_1_beep();
-                    if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
-                        printf("Connected to WiFi\n");
+                    esp_err_t wifi_status_in = esp_wifi_sta_get_ap_info(&ap_info);
+                    if (wifi_status_in == ESP_OK && mqtt_connected) {
+                        // printf("Connected to WiFi\n");
                         send_uart_scan_to_server("reader1", result, "IN");
                     } else {
-                        printf("Not Connected\n");
+                        //printf("Not Connected\n");
                         save_offline_log(
                             result,
                             "reader2",
                             "IN"
                         );
-                        print_offline_logs();
+                        //print_offline_logs();
                     }
                     // send_uart_scan_to_server("reader1", result, "IN");
                 }
@@ -310,17 +313,19 @@ void uart1_task(void *arg)
                     relay_task(NULL);
                     green_led_2_on_500ms();
                     buzzer_2_beep();
-                    if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
-                        printf("Connected to WiFi\n");
+                    esp_err_t wifi_status_out = esp_wifi_sta_get_ap_info(&ap_info);
+                    if (wifi_status_out == ESP_OK && mqtt_connected) {
+                        // printf("Connected to WiFi and mqtt\n");
+                        // printf("Connected to MQTT\n");
                         send_uart_scan_to_server("reader2", result, "OUT");
                     } else {
-                        printf("Not Connected\n");
+                        //printf("Not Connected\n");
                         save_offline_log(
                             result,
                             "reader2",
                             "OUT"
                         );
-                        print_offline_logs();
+                        //print_offline_logs();
                         nvs_stats_t stats;
                         nvs_get_stats(NULL, &stats);
                         ESP_LOGI("NVS", "Total entries: %d", stats.total_entries);
@@ -373,8 +378,32 @@ static void mqtt_event_handler(void *arg,
 
         // Publish
         esp_mqtt_client_publish(event->client, pub_topic, payload, 0, 1, 1);
-        upload_offline_logs();
+        mqtt_connected = true;
+        if (!offline_upload_running && offline_logs_available())
+        {
+            xTaskCreate(
+                upload_offline_logs_task,
+                "offline_upload",
+                4096,
+                NULL,
+                5,
+                NULL
+            );
+        }
 
+        break;
+    }
+    case MQTT_EVENT_DISCONNECTED:
+    {
+        mqtt_connected = false;
+        ESP_LOGW(TAG, "MQTT disconnected");
+        break;
+    }
+    case MQTT_EVENT_PUBLISHED:
+    {
+        ESP_LOGI(TAG,
+                 "PUBLISHED msg_id=%d",
+                 event->msg_id);
         break;
     }
 
@@ -571,7 +600,7 @@ void app_main(void)
              DEVICE_ID);
 
     esp_mqtt_client_config_t mqtt_cfg = {
-        .broker.address.uri = "wss://nbpaccesshub.novelinfra.com/mqtt",
+        .broker.address.uri = "wss://nobaccesshub.novelinfra.com/mqtt",
         .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
 
         .session.last_will.topic = will_topic,

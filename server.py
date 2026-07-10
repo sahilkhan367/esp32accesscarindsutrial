@@ -15,6 +15,22 @@ import pandas as pd
 from fastapi import UploadFile, File
 from fastapi import HTTPException
 import threading
+import logging
+import sys
+
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-8s | %(threadName)s | %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ],
+    force=True
+)
+
+logger = logging.getLogger("ACCESS_SERVER")
+
 
 acks = {}
 ack_events = {}
@@ -69,7 +85,8 @@ esp32_hourly_logs = db["esp32_hourly_logs"]
 # -------- MQTT CALLBACKS --------
 
 def on_connect(client, userdata, flags, rc):
-    print("MQTT connected:", rc)
+    # print("MQTT connected:", rc)
+    logger.info(f"MQTT connected rc={rc}")
     client.subscribe(REQ_TOPIC)
     client.subscribe(STATUS_TOPIC)
     client.subscribe("esp32/ack/+")   # ✅ ACK topic
@@ -77,6 +94,9 @@ def on_connect(client, userdata, flags, rc):
     client.subscribe("esp32/ack_bulk_RM_ALL/+")
     client.subscribe("esp32/heartbeat")
     client.subscribe("esp32/offline_logs")
+    logger.info("Subscribed to esp32/offline_logs")
+    time.sleep(5)
+    logger.info("Python MQTT client ready")
 
 
 
@@ -84,7 +104,8 @@ def on_message(client, userdata, msg):
     payload = msg.payload.decode()
     topic = msg.topic
 
-    print(f"MQTT RX [{topic}]: {payload}")
+    # print(f"MQTT RX [{topic}]: {payload}")
+    logger.info("MQTT RX [%s] %s", topic, payload)
 
     # ✅ MUST be FIRST
     if topic == "esp32/offline_logs":
@@ -125,10 +146,12 @@ def on_message(client, userdata, msg):
     
             esp32_logs.insert_one(log_document)
     
-            print("Offline RFID log saved")
+            # print("Offline RFID log saved")
+            logger.info("Offline RFID log saved")
     
         except Exception as e:
             print("Offline log save error:", e)
+            logger.exception("Offline log save error")
 
     if topic == "esp32/heartbeat":
         print(f"HEARTBEAT RECEIVED: {payload}")

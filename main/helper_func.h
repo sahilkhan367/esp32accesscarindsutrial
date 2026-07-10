@@ -3,6 +3,9 @@
 
 #include <stddef.h>   // for size_t
 #include <time.h>
+#include <stdbool.h>
+
+extern volatile bool offline_upload_running;
 
 
 typedef struct {
@@ -35,7 +38,9 @@ bool rfid_exists(uint32_t id);
 void save_offline_log(uint32_t uid, const char *reader, const char *direction);
 void print_offline_logs(void);
 void send_offline_log_to_server(const offline_log_t *log);
+bool offline_logs_available(void);
 
+void upload_offline_logs_task(void *pvParameters);
 
 
 #endif
