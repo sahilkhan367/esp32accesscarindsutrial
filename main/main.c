@@ -27,13 +27,13 @@
 
 #include "gpio_pin.h" //for gpio pins file
 #include "esp_crt_bundle.h"
-#include "esp_sntp.h"
+    #include "esp_sntp.h"
 #include <time.h>
 #include "helper_func.h"
 #include "esp_wifi.h"
 
 
-const char *DEVICE_ID = "esp32_001";
+const char *DEVICE_ID = "esp32_002";
 
 const char *VERSION = "1.7V";
 
@@ -48,7 +48,7 @@ const char *VERSION = "1.7V";
 #define UART1_RX 27
 
 
-#define OTA_BASE_URL "https://nobaccesshub.novelinfra.com/firmware"
+#define OTA_BASE_URL "https://nowaccesshub.novelinfra.com/firmware"
 
 static const char *TAG = "ESP32_MQTT";
 esp_mqtt_client_handle_t mqtt_client;
@@ -600,7 +600,7 @@ void app_main(void)
              DEVICE_ID);
 
     esp_mqtt_client_config_t mqtt_cfg = {
-        .broker.address.uri = "wss://nobaccesshub.novelinfra.com/mqtt",
+        .broker.address.uri = "wss://nowaccesshub.novelinfra.com/mqtt",
         .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
 
         .session.last_will.topic = will_topic,
