@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, WebSocket
 import pandas as pd
 from fastapi import UploadFile, File
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException, Query
 import threading
 import logging
 import sys
@@ -1229,3 +1229,134 @@ def root():
         "scheduled_time": "Every day at 1:00 AM",
         "operation": "Send previous day's MongoDB logs"
     }
+
+
+
+
+
+
+
+# ===============DATA fetch Webpage==========================================================
+
+
+# esp32_details =db["esp32_details"]
+
+esp32_details_collection = db["esp32_details"]
+esp32_logs_collection = db["esp32_logs"]
+
+@app.get("/esp32_details_list")
+def get_esp32_details():
+
+    try:
+        devices = list(
+            esp32_details_collection.find(
+                {},
+                {
+                    "_id": 0,
+                    "device_id": 1,
+                    "site": 1,
+                    "floor": 1,
+                    "cabin": 1
+                }
+            )
+        )
+
+        return {
+            "status": "success",
+            "count": len(devices),
+            "data": devices
+        }
+
+    except Exception as e:
+        print(f"ESP32 DETAILS ERROR: {e}")
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+@app.get("/esp32_logs_filter")
+def get_esp32_logs_filter(
+    device_id: str = Query(..., description="ESP32 Device ID"),
+    from_date: str = Query(..., description="From date DD-MM-YYYY"),
+    to_date: str = Query(..., description="To date DD-MM-YYYY")
+):
+
+    try:
+        # Validate dates
+        try:
+            from_dt = datetime.strptime(from_date, "%d-%m-%Y")
+            to_dt = datetime.strptime(to_date, "%d-%m-%Y")
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Date format must be DD-MM-YYYY"
+            )
+
+        # Check date range
+        if from_dt > to_dt:
+            raise HTTPException(
+                status_code=400,
+                detail="from_date cannot be greater than to_date"
+            )
+
+        # Convert dates to strings in the same format stored in MongoDB
+        from_date_str = from_dt.strftime("%d-%m-%Y")
+        to_date_str = to_dt.strftime("%d-%m-%Y")
+
+        # Generate all dates between from_date and to_date
+        date_list = []
+
+        current_date = from_dt
+
+        while current_date <= to_dt:
+            date_list.append(
+                current_date.strftime("%d-%m-%Y")
+            )
+            current_date += timedelta(days=1)
+
+        # MongoDB query
+        query = {
+            "device_id": device_id,
+            "date": {
+                "$in": date_list
+            }
+        }
+
+        logs = list(
+            esp32_logs_collection.find(
+                query,
+                {
+                    "_id": 0,
+                    "device_id": 1,
+                    "RFID": 1,
+                    "direction": 1,
+                    "gmail": 1,
+                    "date": 1,
+                    "time": 1
+                }
+            ).sort([
+                ("date", 1),
+                ("time", 1)
+            ])
+        )
+
+        return {
+            "status": "success",
+            "device_id": device_id,
+            "from_date": from_date_str,
+            "to_date": to_date_str,
+            "count": len(logs),
+            "data": logs
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        print(f"ESP32 LOG FILTER ERROR: {e}")
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
