@@ -40,7 +40,17 @@ void print_offline_logs(void);
 void send_offline_log_to_server(const offline_log_t *log);
 bool offline_logs_available(void);
 
+extern bool door_lock;
+extern bool previous_door_lock;
+bool load_door_lock(void);
+void save_door_lock(bool state);
+void check_door_lock_change(void);
+
 void upload_offline_logs_task(void *pvParameters);
+#define RESET_NONE    0
+#define RESET_SUNDAY  1
+#define RESET_MQTT    2
+#define RESET_OTA     3
 
 
 #endif

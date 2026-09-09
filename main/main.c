@@ -1,5 +1,3 @@
-
-
 #include <stdio.h>
 #include <string.h>
 
@@ -27,15 +25,18 @@
 
 #include "gpio_pin.h" //for gpio pins file
 #include "esp_crt_bundle.h"
-    #include "esp_sntp.h"
+#include "esp_sntp.h"
 #include <time.h>
 #include "helper_func.h"
 #include "esp_wifi.h"
 
+#include "ethernet_module.h"
+#include "wifi_manager.h"
 
-const char *DEVICE_ID = "esp32_002";
 
-const char *VERSION = "1.7V";
+const char *DEVICE_ID = "esp32_020";
+
+const char *VERSION = "1.8V";
 
 /* ===================== GPIO & UART DEFINES ===================== */
 
@@ -48,16 +49,130 @@ const char *VERSION = "1.7V";
 #define UART1_RX 27
 
 
-#define OTA_BASE_URL "https://nowaccesshub.novelinfra.com/firmware"
+#define OTA_BASE_URL "https://ntpaccesshub.novelinfra.com/firmware"
 
 static const char *TAG = "ESP32_MQTT";
 esp_mqtt_client_handle_t mqtt_client;
 volatile bool mqtt_connected = false;
+volatile bool reset_log_pending = true;
 volatile bool offline_upload_running = false;
 
 wifi_ap_record_t ap_info;
 
-//===============OTA update =======================
+
+// ==== ESP32 reset reason ======================
+
+esp_reset_reason_t last_reset_reason;
+const char *last_reset_reason_str = "UNKNOWN";
+
+const char *get_reset_reason_string(esp_reset_reason_t reason)
+{
+    switch (reason)
+    {
+        case ESP_RST_POWERON:
+            return "POWER_ON";
+
+        case ESP_RST_EXT:
+            return "EXTERNAL_RESET";
+
+        case ESP_RST_SW:
+            return "SOFTWARE_RESET";
+
+        case ESP_RST_PANIC:
+            return "PANIC";
+
+        case ESP_RST_INT_WDT:
+            return "INTERRUPT_WATCHDOG";
+
+        case ESP_RST_TASK_WDT:
+            return "TASK_WATCHDOG";
+
+        case ESP_RST_WDT:
+            return "WATCHDOG";
+
+        case ESP_RST_DEEPSLEEP:
+            return "DEEP_SLEEP";
+
+        case ESP_RST_BROWNOUT:
+            return "BROWNOUT";
+
+        case ESP_RST_SDIO:
+            return "SDIO_RESET";
+
+        default:
+            return "UNKNOWN";
+    }
+}
+
+
+
+
+
+
+
+void publish_reset_reason(void)
+{
+    if (!mqtt_connected)
+    {
+        ESP_LOGW(TAG, "MQTT not connected, cannot publish reset reason");
+        return;
+    }
+
+    char reset_topic[128];
+    char reset_payload[256];
+
+    // Separate MQTT topic
+    sprintf(reset_topic, "esp32/reset_logs/%s", DEVICE_ID);
+
+    // Reset JSON payload
+    sprintf(reset_payload,
+            "{\"device_id\":\"%s\",\"Last Reset\":\"%s\"}",
+            DEVICE_ID,
+            last_reset_reason_str);
+
+    ESP_LOGI(TAG, "Publishing reset reason: %s", reset_payload);
+
+    esp_mqtt_client_publish(
+        mqtt_client,
+        reset_topic,
+        reset_payload,
+        0,
+        1,
+        1
+    );
+}
+
+
+void reset_log_task(void *arg)
+{
+    ESP_LOGI(TAG, "Reset log task started");
+
+    while (!mqtt_connected)
+    {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+
+    ESP_LOGI(TAG, "MQTT connected, sending reset log");
+
+    if (reset_log_pending)
+    {
+        publish_reset_reason();
+
+        reset_log_pending = false;
+
+        ESP_LOGI(TAG, "Reset log sent successfully");
+    }
+
+    vTaskDelete(NULL);
+}
+
+
+
+
+
+
+
+//===============OTA update ====================
 
 #include "esp_https_ota.h"
 #include "esp_http_client.h"
@@ -233,6 +348,34 @@ void send_uart_scan_to_server(const char *reader,
     mqtt_publish(data, "rfid");
 }
 
+static const char *TAG_ETH = "ETH_CHECK";
+
+bool ethernet_is_connected_check(void)
+{
+    esp_netif_t *eth_netif = esp_netif_get_handle_from_ifkey("ETH_DEF");
+
+    if (eth_netif == NULL) {
+        ESP_LOGW(TAG_ETH, "Ethernet netif not found");
+        return false;
+    }
+
+    esp_netif_ip_info_t ip_info;
+
+    if (esp_netif_get_ip_info(eth_netif, &ip_info) != ESP_OK) {
+        return false;
+    }
+
+    // 0.0.0.0 means Ethernet has not received an IP
+    if (ip_info.ip.addr == 0) {
+        return false;
+    }
+
+    return true;
+}
+
+
+
+
 void uart2_task(void *arg)
 {
     uart_event_t event;
@@ -258,11 +401,12 @@ void uart2_task(void *arg)
                 if (rfid_exists(result))
                 {
                     //printf("ACCESS GRANTED\n");
-                    relay_task(NULL);
+                    if(door_lock){relay_task(NULL);}
+                    // relay_task(NULL);
                     green_led_1_on_500ms();
                     buzzer_1_beep();
                     esp_err_t wifi_status_in = esp_wifi_sta_get_ap_info(&ap_info);
-                    if (wifi_status_in == ESP_OK && mqtt_connected) {
+                    if ((wifi_status_in == ESP_OK || ethernet_is_connected_check()) && mqtt_connected) {
                         // printf("Connected to WiFi\n");
                         send_uart_scan_to_server("reader1", result, "IN");
                     } else {
@@ -310,11 +454,12 @@ void uart1_task(void *arg)
                 if (rfid_exists(result))
                 {
                     // printf("ACCESS GRANTED\n");
-                    relay_task(NULL);
+                    if(door_lock){relay_task(NULL);}
+                    // relay_task(NULL);
                     green_led_2_on_500ms();
                     buzzer_2_beep();
                     esp_err_t wifi_status_out = esp_wifi_sta_get_ap_info(&ap_info);
-                    if (wifi_status_out == ESP_OK && mqtt_connected) {
+                    if ((wifi_status_out == ESP_OK || ethernet_is_connected_check()) && mqtt_connected) {
                         // printf("Connected to WiFi and mqtt\n");
                         // printf("Connected to MQTT\n");
                         send_uart_scan_to_server("reader2", result, "OUT");
@@ -371,7 +516,11 @@ static void mqtt_event_handler(void *arg,
         sprintf(pub_topic, "esp32/status/%s", DEVICE_ID);
 
         // Create JSON payload
-        sprintf(payload,"{\"device_id\":\"%s\",\"status\":\"online\",\"Version\":\"%s\"}",DEVICE_ID, VERSION);
+        // sprintf(payload,"{\"device_id\":\"%s\",\"status\":\"online\",\"Version\":\"%s\"}",DEVICE_ID, VERSION);
+        // vTaskDelay(3000);
+        log_network_status();
+        sprintf(payload, "{\"device_id\":\"%s\",\"status\":\"online\",\"Version\":\"%s\",\"network\":\"%s\"}", DEVICE_ID, VERSION, network_type);
+        // printf(payload, "{\"device_id\":\"%s\",\"status\":\"online\",\"Version\":\"%s\",\"network\":\"%s\"}", DEVICE_ID, VERSION, network_type);
 
         // Subscribe
         esp_mqtt_client_subscribe(event->client, sub_topic, 1);
@@ -513,18 +662,53 @@ void nvs_init(void)
 
 void app_main(void)
 {
+    last_reset_reason = esp_reset_reason();
+    last_reset_reason_str = get_reset_reason_string(last_reset_reason);
+    ESP_LOGI("RESET", "Last reset reason: %s", last_reset_reason_str);
+
+
     /* ---------- WiFi Initialization ---------- */
     nvs_flash_init();
+    // Initialize common networking infrastructure ONCE
+    ESP_ERROR_CHECK(esp_netif_init());
+
+    esp_err_t ret = esp_event_loop_create_default();
+
+    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+        ESP_ERROR_CHECK(ret);
+    }
+
+    // Ethernet first
+    ethernet_init();
+
+    // WiFi second
     wifi_manager_init();
+    
     extern EventGroupHandle_t wifi_event_group;
     #define WIFI_CONNECTED_BIT BIT0
 
-    xEventGroupWaitBits(
-        wifi_event_group,
-        WIFI_CONNECTED_BIT,
-        false,
-        true,
-        pdMS_TO_TICKS(10000));
+    if (ethernet_is_connected()) {
+    
+        ESP_LOGI(
+            TAG,
+            "NETWORK: Ethernet is active"
+        );
+    
+    } else {
+    
+        ESP_LOGI(
+            TAG,
+            "NETWORK: Ethernet unavailable, using WiFi"
+        );
+    
+        xEventGroupWaitBits(
+            wifi_event_group,
+            WIFI_CONNECTED_BIT,
+            false,
+            true,
+            pdMS_TO_TICKS(10000)
+        );
+    }
 
     /* ---------- UART2 (Reader 1) ---------- */
     uart_config_t uart2_config = {
@@ -600,7 +784,7 @@ void app_main(void)
              DEVICE_ID);
 
     esp_mqtt_client_config_t mqtt_cfg = {
-        .broker.address.uri = "wss://nowaccesshub.novelinfra.com/mqtt",
+        .broker.address.uri = "wss://ntpaccesshub.novelinfra.com/mqtt",
         .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
 
         .session.last_will.topic = will_topic,
@@ -618,12 +802,24 @@ void app_main(void)
         NULL);
 
     esp_mqtt_client_start(mqtt_client);
+    xTaskCreate(reset_log_task, "reset_log_task", 4096, NULL, 5, NULL);  //task to send a reset logs
 
     //======== get message as data=======
     nvs_init();
     gpio_pin_init();
     nvs_stats_t stats;
     nvs_get_stats(NULL, &stats);
+    // Restore previous state
+    door_lock = load_door_lock();
+    if(!door_lock){
+        gpio_set_level(RELAY_1, 1);
+        check_door_lock_change();
+        
+    }
+
+
+
+
 
     ESP_LOGI("NVS", "Total entries: %d", stats.total_entries);
     ESP_LOGI("NVS", "Used entries: %d", stats.used_entries);

@@ -9,6 +9,7 @@
 #include "driver/gpio.h"
 
 #include "wifi_manager.h"
+#include "helper_func.h"
 #include "esp_sntp.h"
 #include <time.h>
 #include "freertos/event_groups.h"
@@ -17,6 +18,10 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
+#include "ethernet_module.h"
+static bool ethernet_priority = false;
+
 
 #define WIFI_CONNECTED_BIT BIT0
 #define MAX_RETRY 5
@@ -41,6 +46,36 @@ static int load_last_reset_day();
 
 
 
+
+void wifi_update_network_led(void)
+{
+    bool ethernet_connected = ethernet_is_connected();
+    bool wifi_connected = wifi_is_sta_connected();
+
+    if (ethernet_connected || wifi_connected)
+    {
+        // At least one network is available
+        gpio_set_level(WIFI_LED_GPIO, 0);   // BLUE LED OFF
+    }
+    else
+    {
+        // No Ethernet and no WiFi
+        gpio_set_level(WIFI_LED_GPIO, 1);   // BLUE LED ON
+    }
+
+    ESP_LOGI("NET_LED",
+             "Ethernet=%d WiFi=%d LED=%s",
+             ethernet_connected,
+             wifi_connected,
+             (ethernet_connected || wifi_connected) ? "OFF" : "ON");
+}
+
+
+
+
+
+
+
 //-------------wifi strenght--------------
 
 int wifi_get_rssi(void)
@@ -53,6 +88,12 @@ int wifi_get_rssi(void)
 
     return -100; // Not connected
 }
+
+static bool ethernet_available(void)
+{
+    return ethernet_is_connected();
+}
+
 
 
 static void wifi_signal_task(void *arg)
@@ -120,56 +161,114 @@ static void wifi_event_handler(void *arg,
                                void *event_data)
 {
     if (event_base == WIFI_EVENT &&
-        event_id == WIFI_EVENT_STA_DISCONNECTED) {
-
+        event_id == WIFI_EVENT_STA_DISCONNECTED)
+    {
         xEventGroupClearBits(wifi_event_group, WIFI_CONNECTED_BIT);
-        gpio_set_level(WIFI_LED_GPIO, 1); // LED OFF
+
+        wifi_update_network_led();
+
         ESP_LOGW(TAG, "STA disconnected");
+
+        /*
+         * Ethernet has priority.
+         * If Ethernet is available, do NOT reconnect WiFi.
+         */
+        if (ethernet_is_connected())
+        {
+            ESP_LOGI(TAG, "Ethernet active -> WiFi reconnect skipped");
+            initialize_sntp();
+        }
+        else
+        {
+            /*
+             * Ethernet is unavailable, so WiFi can reconnect.
+             */
+            ESP_LOGI(TAG, "Ethernet unavailable -> reconnecting WiFi");
+
+            esp_err_t err = esp_wifi_connect();
+
+            if (err != ESP_OK)
+            {
+                ESP_LOGW(TAG,
+                         "WiFi reconnect failed: %s",
+                         esp_err_to_name(err));
+            }
+        }
     }
 
     else if (event_base == IP_EVENT &&
-             event_id == IP_EVENT_STA_GOT_IP) {
-
+             event_id == IP_EVENT_STA_GOT_IP)
+    {
         xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);
-        gpio_set_level(WIFI_LED_GPIO, 0); // LED ON
+
+        /*
+         * Update network LED.
+         *
+         * Ethernet connected OR WiFi connected
+         *              -> LED OFF
+         *
+         * Both disconnected
+         *              -> LED ON
+         */
+        wifi_update_network_led();
+
         ESP_LOGI(TAG, "STA connected");
+
+        /*
+         * Time configuration
+         */
         setenv("TZ", "IST-5:30", 1);
         tzset();
+
         vTaskDelay(2000 / portTICK_PERIOD_MS);
+
         initialize_sntp();
 
         time_t now = 0;
         struct tm timeinfo = { 0 };
-        
+
         int retry = 0;
         const int retry_count = 10;
 
-        while (retry < retry_count) {
-    
+        while (retry < retry_count)
+        {
             time(&now);
             localtime_r(&now, &timeinfo);
-    
-            if (timeinfo.tm_year >= (2020 - 1900)) {
+
+            if (timeinfo.tm_year >= (2020 - 1900))
+            {
                 ESP_LOGI("SNTP", "Time synchronized");
                 break;
             }
-    
-            ESP_LOGI("SNTP", "Waiting for time sync... (%d/%d)", retry + 1, retry_count);
+
+            ESP_LOGI("SNTP",
+                     "Waiting for time sync... (%d/%d)",
+                     retry + 1,
+                     retry_count);
+
             vTaskDelay(2000 / portTICK_PERIOD_MS);
+
             retry++;
         }
-    
-        // ✅ Check if sync actually happened
-        if (timeinfo.tm_year < (2020 - 1900)) {
+
+        /*
+         * Check if synchronization actually happened
+         */
+        if (timeinfo.tm_year < (2020 - 1900))
+        {
             ESP_LOGE("SNTP", "Time sync FAILED");
-        } else {
-            ESP_LOGI("TIME", "%02d-%02d-%04d %02d:%02d:%02d",
+        }
+        else
+        {
+            ESP_LOGI("TIME",
+                     "%02d-%02d-%04d %02d:%02d:%02d",
                      timeinfo.tm_mday,
                      timeinfo.tm_mon + 1,
                      timeinfo.tm_year + 1900,
                      timeinfo.tm_hour,
                      timeinfo.tm_min,
                      timeinfo.tm_sec);
+
             xTaskCreate(
                 sunday_reset_task,
                 "sunday_reset",
@@ -179,8 +278,10 @@ static void wifi_event_handler(void *arg,
                 NULL
             );
         }
-    
-        // Now start MQTT
+
+        /*
+         * MQTT starts from your existing code.
+         */
     }
 }
 
@@ -195,12 +296,33 @@ static void wifi_watchdog_task(void *arg)
     wifi_ap_record_t ap_info;
 
     while (1) {
-        if (esp_wifi_sta_get_ap_info(&ap_info) != ESP_OK) {
-            ESP_LOGW("WIFI_WD", "STA truly disconnected, reconnecting");
-            esp_wifi_connect();
-        }
-        vTaskDelay(pdMS_TO_TICKS(30000)); // check every 60s
-    } 
+
+        /*
+         * Ethernet has priority.
+         * Never reconnect WiFi while Ethernet is available.
+         */
+        // if (ethernet_is_connected()) {
+
+        //     wifi_update_network_led();
+
+        //     ESP_LOGI("WIFI_WD",
+        //              "Ethernet active -> WiFi reconnect skipped");
+
+        // } else {
+
+        //     if (esp_wifi_sta_get_ap_info(&ap_info) != ESP_OK) {
+
+        //         ESP_LOGW(
+        //             "WIFI_WD",
+        //             "Ethernet unavailable and WiFi disconnected -> reconnecting"
+        //         );
+
+        //         esp_wifi_connect();
+        //     }
+        // }
+
+        vTaskDelay(pdMS_TO_TICKS(30000));
+    }
 }
 
 static void wifi_led_init(void)
@@ -261,8 +383,19 @@ void wifi_manager_init(void)
 {
     wifi_event_group = xEventGroupCreate();
 
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    esp_err_t ret;
+    
+    ret = esp_netif_init();
+    
+    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+        ESP_ERROR_CHECK(ret);
+    }
+    
+    ret = esp_event_loop_create_default();
+    
+    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+        ESP_ERROR_CHECK(ret);
+    }
 
     esp_netif_create_default_wifi_sta();
     esp_netif_create_default_wifi_ap();
@@ -329,12 +462,34 @@ void wifi_manager_init(void)
 
     // 🔑 LOAD SAVED CREDENTIALS AFTER BOOT
     if (load_wifi_nvs()) {
+
         wifi_config_t sta_cfg = {0};
+
         strcpy((char *)sta_cfg.sta.ssid, saved_ssid);
         strcpy((char *)sta_cfg.sta.password, saved_pass);
 
-        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta_cfg));
-        ESP_ERROR_CHECK(esp_wifi_connect());
+        ESP_ERROR_CHECK(
+            esp_wifi_set_config(WIFI_IF_STA, &sta_cfg)
+        );
+
+        /*
+         * Ethernet has priority.
+         * Do not connect Wi-Fi STA if Ethernet already has IP.
+         */
+        if (!ethernet_is_connected()) {
+
+            ESP_LOGI(TAG,
+                     "Ethernet not available -> connecting WiFi STA");
+
+            ESP_ERROR_CHECK(esp_wifi_connect());
+
+        } else {
+
+            ESP_LOGI(TAG,
+                     "Ethernet available -> WiFi STA connection skipped");
+
+            gpio_set_level(WIFI_LED_GPIO, 1);
+        }
     }
 }
 
@@ -411,5 +566,89 @@ void sunday_reset_task(void *arg)
 }
 
 
+
+
+
+void wifi_manager_start_sta(void)
+{
+    if (ethernet_is_connected()) {
+
+        ESP_LOGI(
+            TAG,
+            "Ethernet is available -> WiFi STA will not start"
+        );
+
+        return;
+    }
+
+    if (strlen(saved_ssid) == 0) {
+
+        ESP_LOGW(
+            TAG,
+            "No saved WiFi credentials"
+        );
+
+        return;
+    }
+
+    ESP_LOGI(
+        TAG,
+        "Starting WiFi STA: %s",
+        saved_ssid
+    );
+
+    wifi_config_t sta_cfg = {0};
+
+    strcpy(
+        (char *)sta_cfg.sta.ssid,
+        saved_ssid
+    );
+
+    strcpy(
+        (char *)sta_cfg.sta.password,
+        saved_pass
+    );
+
+    ESP_ERROR_CHECK(
+        esp_wifi_set_config(
+            WIFI_IF_STA,
+            &sta_cfg
+        )
+    );
+
+    esp_wifi_connect();
+}
+
+
+
+
+
+
+//===Check wether it is wifi or ethernet=============
+
+const char *network_type = "None";
+
+
+void log_network_status(void)
+{
+    bool ethernet = ethernet_is_connected();
+    bool wifi = wifi_is_sta_connected();
+
+    if (ethernet)
+    {
+        ESP_LOGI("NETWORK", "Active Network: ETHERNET");
+        network_type = "Ethernet";
+    }
+    else if (wifi)
+    {
+        ESP_LOGI("NETWORK", "Active Network: WIFI");
+        network_type = "WiFi";
+    }
+    else
+    {
+        ESP_LOGW("NETWORK", "No network connected");
+        network_type = "None";
+    }
+}
 
 

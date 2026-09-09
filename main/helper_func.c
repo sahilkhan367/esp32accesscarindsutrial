@@ -14,8 +14,14 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include <time.h>
+#include <stdbool.h>
+
+#include "gpio_pin.h"
 
 static const char *TAG = "HELPER";
+
+bool door_lock=true;
+bool previous_door_lock = true;
 
 
 extern esp_mqtt_client_handle_t mqtt_client;
@@ -37,11 +43,123 @@ void send_offline_log_to_server(const offline_log_t *log);
 
 
 
+
 #define RFID_NAMESPACE "rfid_db"
 extern const char *DEVICE_ID;
 
 #define KEY_MAX_LEN     16
 #define VALUE_MAX_LEN   32
+
+
+
+static const char *TAG_DOOR = "DOOR_LOCK";
+
+void save_door_lock(bool state)
+{
+    nvs_handle_t handle;
+
+    esp_err_t err = nvs_open("storage", NVS_READWRITE, &handle);
+
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG_DOOR, "NVS open failed: %s", esp_err_to_name(err));
+        return;
+    }
+
+    err = nvs_set_u8(handle, "door_lock", state ? 1 : 0);
+
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG_DOOR, "NVS set failed: %s", esp_err_to_name(err));
+        nvs_close(handle);
+        return;
+    }
+
+    err = nvs_commit(handle);
+
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG_DOOR, "NVS commit failed: %s", esp_err_to_name(err));
+    }
+    else
+    {
+        ESP_LOGI(TAG_DOOR, "Saved door_lock = %d", state);
+    }
+
+    nvs_close(handle);
+}
+
+bool load_door_lock(void)
+{
+    nvs_handle_t handle;
+    uint8_t value = 1;   // Default = true
+
+    esp_err_t err = nvs_open("storage", NVS_READONLY, &handle);
+
+    if (err != ESP_OK)
+    {
+        ESP_LOGW(TAG_DOOR, "NVS open failed, using default door_lock = 1");
+        return true;
+    }
+
+    err = nvs_get_u8(handle, "door_lock", &value);
+
+    if (err == ESP_OK)
+    {
+        ESP_LOGI(TAG_DOOR, "Loaded door_lock = %d", value);
+    }
+    else if (err == ESP_ERR_NVS_NOT_FOUND)
+    {
+        ESP_LOGW(TAG_DOOR, "door_lock not found, using default = 1");
+    }
+    else
+    {
+        ESP_LOGE(TAG_DOOR, "NVS read failed: %s", esp_err_to_name(err));
+    }
+
+    nvs_close(handle);
+
+    return value ? true : false;
+}
+
+void check_door_lock_change(void)
+{
+    if (door_lock != previous_door_lock)
+    {
+        ESP_LOGI(TAG, "Door lock state changed: %s",
+                 door_lock ? "LOCKED" : "UNLOCKED");
+
+        char topic[128];
+        char payload[256];
+
+        // Create topic using DEVICE_ID
+        snprintf(topic, sizeof(topic),
+                 "esp32/door/%s", DEVICE_ID);
+
+        // Create message using DEVICE_ID and door_lock state
+        snprintf(payload, sizeof(payload),
+         "{\"device_id\":\"%s\",\"door_status\":\"%s\"}",
+         DEVICE_ID,
+         door_lock ? "LOCKED" : "UNLOCKED");
+
+        // Publish with QoS 2
+        esp_mqtt_client_publish(
+            mqtt_client,
+            topic,
+            payload,
+            0,      // Length: 0 = automatically calculate
+            2,      // QoS 2
+            0       // Retain = false
+        );
+
+        ESP_LOGI(TAG, "MQTT door message sent: %s", payload);
+
+        previous_door_lock = door_lock;
+    }
+}
+
+
+
 
 
 int contains_keyword(const char *data, size_t len, const char *key) {
@@ -146,6 +264,25 @@ void data_parsing(const char *data, size_t data_len)
     else if (strcmp(key, "RESET") == 0 &&
     strcmp(value, "RESET") == 0) {
     esp_restart();
+    }
+    if (strcmp(key, "LOCK") == 0 &&
+        strcmp(value, "LOCK") == 0)
+    {
+        printf("DOOR LOCK CMD\n");
+        gpio_set_level(RELAY_1, 0);
+        door_lock=true;
+        save_door_lock(door_lock);
+        check_door_lock_change();
+    }
+    else if (strcmp(key, "UNLOCK") == 0 &&
+             strcmp(value, "UNLOCK") == 0)
+    {
+        printf("DOOR UNLOCK CMD\n");
+        door_lock=false;
+        gpio_set_level(RELAY_1, 1);
+        save_door_lock(door_lock);
+        check_door_lock_change();
+    
     }
 }
 

@@ -5,6 +5,7 @@ idf_component_register(
         "web_server.c"
         "helper_func.c"
         "gpio_pin.c"
+        "ethernet_module.c"
     INCLUDE_DIRS
         "."
 )

@@ -2,6 +2,7 @@
 #define GPIO_PIN_H
 
 #include "driver/gpio.h"
+#include <stdbool.h>
 
 // -------- PIN DEFINITIONS --------
 #define GREEN_LED_1   GPIO_NUM_4
@@ -27,5 +28,9 @@ void red_led_2_on_500ms(void);
 void buzzer_2_beep(void);   // ✅ ADD THIS
 
 void relay_task(void *pvParameter);
+void unlock_door(void);
+void lock_door(void);
+extern bool door_unlocked;
+
 
 #endif
