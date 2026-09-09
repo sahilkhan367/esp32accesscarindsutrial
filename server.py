@@ -17,7 +17,10 @@ from fastapi import HTTPException
 import threading
 import logging
 import sys
-
+from apscheduler.schedulers.background import BackgroundScheduler
+import requests
+import atexit
+from bson import ObjectId
 
 
 logging.basicConfig(
@@ -43,6 +46,7 @@ PORT = 1883
 REQ_TOPIC = "esp32/request"
 STATUS_TOPIC = "esp32/status/+"
 MQTT_TOPIC = "esp32/access/receive"
+
 
 app = FastAPI()
 
@@ -80,6 +84,8 @@ esp32_user = db["esp32_user"]
 esp32_logs = db["esp32_logs"]
 esp32_details =db["esp32_details"]
 esp32_hourly_logs = db["esp32_hourly_logs"]
+esp32_reset_logs=db["esp32_reset_logs"]
+esp32_door_logs=db["esp32_door_logs"]
 
 
 # -------- MQTT CALLBACKS --------
@@ -94,6 +100,9 @@ def on_connect(client, userdata, flags, rc):
     client.subscribe("esp32/ack_bulk_RM_ALL/+")
     client.subscribe("esp32/heartbeat")
     client.subscribe("esp32/offline_logs")
+    client.subscribe("esp32/reset_logs/+")
+    client.subscribe("esp32/door/+")
+    
     logger.info("Subscribed to esp32/offline_logs")
     time.sleep(5)
     logger.info("Python MQTT client ready")
@@ -254,6 +263,7 @@ def on_message(client, userdata, msg):
         "date": now_local.strftime("%d-%m-%Y"),
         "time": now_local.strftime("%H:%M:%S"),
         "version": data.get("Version", "unknown"),
+        "Network": data.get("network", "unknown")
         })
         return
 
@@ -300,25 +310,7 @@ def on_message(client, userdata, msg):
 
         resp_topic = f"esp32/response/{device_id}"
         mqtt_client.publish(resp_topic, json.dumps(response), qos=1)
-    # if topic.startswith("esp32/ack_bulk/"):
-    #     device_id = topic.split("/")[-1].strip()
 
-    #     try:
-    #         data = json.loads(payload)
-
-    #         if data.get("status") == "completed":
-
-    #             with ack_lock:
-    #                 event = ack_events.get(device_id)
-
-    #             if event:
-    #                 print("🔥 SETTING EVENT OBJECT:", id(event))
-    #                 event.set()
-    #             else:
-    #                 print("❌ EVENT NOT FOUND")
-
-    #     except Exception as e:
-    #         print("ACK parse error:", e)
 
     if topic.startswith("esp32/ack_bulk_RM_ALL"):
         device_id = topic.split("/")[-1].strip()
@@ -329,6 +321,60 @@ def on_message(client, userdata, msg):
             })
     
             print(f"[BULK_RM] Device: {device_id}, Deleted: {result.deleted_count}")
+
+    if topic.startswith("esp32/reset_logs/"):
+        try:
+            data = json.loads(payload)
+    
+            device_id = data["device_id"]
+    
+            now_local = datetime.now()
+    
+            esp32_reset_logs.insert_one({
+                "device_id": device_id,
+                "last_reset": data["Last Reset"],
+                "date": now_local.strftime("%d-%m-%Y"),
+                "time": now_local.strftime("%H:%M:%S"),
+            })
+    
+            logger.info(
+                "RESET LOG SAVED: device=%s reset=%s",
+                device_id,
+                data["Last Reset"]
+            )
+    
+        except Exception as e:
+            logger.exception("Reset log error: %s", e)
+    
+    if topic.startswith("esp32/door/"):
+        try:
+            data = json.loads(payload)
+    
+            device_id = data["device_id"]
+            status = data["door_status"]
+    
+            now_local = datetime.now()
+    
+            result = esp32_door_logs.update_one(
+                {"device_id": device_id},
+                {
+                    "$set": {
+                        "door_status": status,
+                        "date": now_local.strftime("%d-%m-%Y"),
+                        "time": now_local.strftime("%H:%M:%S"),
+                    }
+                },
+                upsert=True
+            )
+    
+            logger.info(
+                "DOOR STATUS UPDATED: device=%s status=%s",
+                device_id,
+                status
+            )
+    
+        except Exception as e:
+            logger.exception("Door status update error: %s", e)
     
     
 
@@ -413,7 +459,7 @@ def get_ack(device_id: str):
         "ack": acks.pop(device_id, "no_ack")
     }
 
-FIRMWARE_DIR = "firmware"
+FIRMWARE_DIR = "/home/novel/firmware"
 
 @app.get("/firmware/{device_id}")
 def download_firmware(device_id: str):
@@ -981,4 +1027,205 @@ async def get_nom_hourly_logs(date: str):
         "date": date,
         "count": len(result),
         "data": result
+    }
+
+
+
+
+##-------------------------------------------------------------------------------------------
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+TARGET_URL = "https://ntpaccesshubbackup.novelinfra.com/receive"
+
+MONGO_URI = "mongodb://localhost:27017/"
+
+DATABASE_NAME = "Transaction_hub"
+COLLECTION_NAME = "esp32_logs"
+
+
+# ============================================================
+# LOGGING
+# ============================================================
+
+logging.basicConfig(level=logging.INFO)
+
+
+# ============================================================
+# MONGODB CONNECTION
+# ============================================================
+
+mongo_client = MongoClient(MONGO_URI)
+
+db = mongo_client[DATABASE_NAME]
+
+logs_collection = db[COLLECTION_NAME]
+
+
+# ============================================================
+# SEND PREVIOUS DAY DATA
+# ============================================================
+
+def send_previous_day_logs():
+
+    try:
+
+        # ----------------------------------------------------
+        # Get previous day's date
+        # ----------------------------------------------------
+
+        today = datetime.now()
+
+        previous_day = today - timedelta(days=1)
+
+        previous_date = previous_day.strftime("%d-%m-%Y")
+
+        logging.info(
+            f"Fetching logs for previous day: {previous_date}"
+        )
+
+
+        # ----------------------------------------------------
+        # MongoDB filter
+        # ----------------------------------------------------
+
+        query = {
+            "date": previous_date,
+            "time": {
+                "$gte": "00:00:00",
+                "$lte": "23:59:59"
+            }
+        }
+
+
+        # ----------------------------------------------------
+        # Fetch logs
+        # ----------------------------------------------------
+
+        logs = list(
+            logs_collection.find(query)
+        )
+
+
+        logging.info(
+            f"Found {len(logs)} logs for {previous_date}"
+        )
+
+
+        # ----------------------------------------------------
+        # Convert MongoDB ObjectId to string
+        # ----------------------------------------------------
+
+        for log in logs:
+
+            if "_id" in log:
+                log["_id"] = str(log["_id"])
+
+
+        # ----------------------------------------------------
+        # JSON payload
+        # ----------------------------------------------------
+
+        payload = {
+            "date": previous_date,
+            "total_logs": len(logs),
+            "logs": logs
+        }
+
+
+        # ----------------------------------------------------
+        # Send to backup server
+        # ----------------------------------------------------
+
+        response = requests.post(
+            TARGET_URL,
+            json=payload,
+            timeout=60
+        )
+
+
+        # ----------------------------------------------------
+        # Check response
+        # ----------------------------------------------------
+
+        if response.ok:
+
+            logging.info(
+                f"Previous day data sent successfully. "
+                f"Status: {response.status_code}"
+            )
+
+            logging.info(
+                f"Backup response: {response.text}"
+            )
+
+        else:
+
+            logging.error(
+                f"Backup server returned error. "
+                f"Status: {response.status_code}, "
+                f"Response: {response.text}"
+            )
+
+
+    except Exception as e:
+
+        logging.exception(
+            f"Failed to send previous day logs: {e}"
+        )
+
+
+# ============================================================
+# MANUAL API
+# ============================================================
+
+@app.post("/send_previous_day")
+def send_previous_day():
+
+    send_previous_day_logs()
+
+    return {
+        "success": True,
+        "message": "Previous day logs sent"
+    }
+
+
+# ============================================================
+# SCHEDULER
+# ============================================================
+
+scheduler = BackgroundScheduler()
+
+
+scheduler.add_job(
+    send_previous_day_logs,
+    "cron",
+    hour=1,
+    minute=10,
+    id="daily_previous_day_sender",
+    replace_existing=True
+)
+
+
+scheduler.start()
+
+
+atexit.register(
+    lambda: scheduler.shutdown()
+)
+
+
+# ============================================================
+# ROOT
+# ============================================================
+
+@app.get("/")
+def root():
+
+    return {
+        "status": "running",
+        "scheduled_time": "Every day at 1:00 AM",
+        "operation": "Send previous day's MongoDB logs"
     }
