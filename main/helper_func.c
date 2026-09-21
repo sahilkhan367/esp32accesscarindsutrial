@@ -189,26 +189,26 @@ void data_parsing(const char *data, size_t data_len)
 
     }if (contains_keyword(data, data_len, "bulk_add") ||
         contains_keyword(data, data_len, "BULK_ADD")) {
-        printf("BULK ADD FOUND\n");
+        // printf("BULK ADD FOUND\n");
         // bulk_add_parse_and_store(data, data_len);
         char *copy = malloc(data_len + 1);
         memcpy(copy, data, data_len);
         copy[data_len] = '\0';
         xTaskCreate(bulk_add_task, "bulk_add_task", 8192, copy, 5, NULL);
-        printf("Completed BULK ADD\n");
+        // printf("Completed BULK ADD\n");
         // call your bulk add function here
         return;
     }
 
     if (contains_keyword(data, data_len, "bulk_rm") ||
         contains_keyword(data, data_len, "BULK_RM")) {
-        printf("BULK RM FOUND\n");
+        // printf("BULK RM FOUND\n");
         //bulk_rm_parse_and_remove(data, data_len);
         char *copy = malloc(data_len + 1);
         memcpy(copy, data, data_len);
         copy[data_len] = '\0';
         xTaskCreate(bulk_rm_task, "bulk_rm_task", 8192, copy, 5, NULL);
-        printf("Completed BULK RM\n");
+        // printf("Completed BULK RM\n");
         // call your bulk remove function here
         return;
     }
@@ -248,8 +248,8 @@ void data_parsing(const char *data, size_t data_len)
     value[value_len] = '\0';
 
     /* ---------- OUTPUT ---------- */
-    printf("KEY   = %s\n", key);
-    printf("VALUE = %s\n", value);
+    // printf("KEY   = %s\n", key);
+    // printf("VALUE = %s\n", value);
 
     if (strcmp(key, "ADD") == 0) {
     rfid_add(value);
@@ -268,7 +268,7 @@ void data_parsing(const char *data, size_t data_len)
     if (strcmp(key, "LOCK") == 0 &&
         strcmp(value, "LOCK") == 0)
     {
-        printf("DOOR LOCK CMD\n");
+        // printf("DOOR LOCK CMD\n");
         gpio_set_level(RELAY_1, 0);
         door_lock=true;
         save_door_lock(door_lock);
@@ -277,7 +277,7 @@ void data_parsing(const char *data, size_t data_len)
     else if (strcmp(key, "UNLOCK") == 0 &&
              strcmp(value, "UNLOCK") == 0)
     {
-        printf("DOOR UNLOCK CMD\n");
+        //printf("DOOR UNLOCK CMD\n");
         door_lock=false;
         gpio_set_level(RELAY_1, 1);
         save_door_lock(door_lock);
@@ -339,7 +339,7 @@ void rfid_display_all(void)
     nvs_iterator_t it = NULL;
     esp_err_t err;
 
-    printf("---- STORED RFID CARDS ----\n");
+    // printf("---- STORED RFID CARDS ----\n");
 
     err = nvs_entry_find("nvs", RFID_NAMESPACE, NVS_TYPE_U8, &it);
     while (err == ESP_OK && it != NULL) {
@@ -425,11 +425,11 @@ void bulk_add_parse_and_store(const char *data, size_t len)
     }
 
     if (!start || !end || start >= end) {
-        printf("Invalid BULK format\n");
+        // printf("Invalid BULK format\n");
         return;
     }
 
-    printf("Starting BULK ADD...\n");
+    // printf("Starting BULK ADD...\n");
 
     char id[32];
     int idx = 0;
@@ -458,7 +458,7 @@ void bulk_add_parse_and_store(const char *data, size_t len)
 
             /* ---------- Store ---------- */
             if (len > 0) {
-                printf("Adding ID: %s\n", clean);
+                // printf("Adding ID: %s\n", clean);
                 rfid_add(clean);
             }
 
@@ -483,7 +483,7 @@ void bulk_add_parse_and_store(const char *data, size_t len)
     1,
     0
     );
-    printf("Completed BULK ADD\n");
+    // printf("Completed BULK ADD\n");
     }
 
 
@@ -514,11 +514,11 @@ void bulk_rm_parse_and_remove(const char *data, size_t len)
     }
 
     if (!start || !end || start >= end) {
-        printf("Invalid BULK RM format\n");
+        // printf("Invalid BULK RM format\n");
         return;
     }
 
-    printf("Starting BULK RM...\n");
+    // printf("Starting BULK RM...\n");
 
     char id[32];
     int idx = 0;
@@ -548,7 +548,7 @@ void bulk_rm_parse_and_remove(const char *data, size_t len)
 
             /* ---------- Remove ---------- */
             if (len > 0) {
-                printf("Removing ID: %s\n", clean);
+                // printf("Removing ID: %s\n", clean);
                 rfid_remove(clean);
             }
 
@@ -574,7 +574,7 @@ void bulk_rm_parse_and_remove(const char *data, size_t len)
     );
     //-------------
 
-    printf("Completed BULK RM\n");
+    // printf("Completed BULK RM\n");
 }
 
 
@@ -696,7 +696,7 @@ void print_offline_logs(void)
     nvs_get_u32(handle, "head", &head);
     nvs_get_u32(handle, "tail", &tail);
 
-    printf("\n===== OFFLINE LOGS =====\n");
+    // printf("\n===== OFFLINE LOGS =====\n");
 
     for (uint32_t i = head; i < tail; i++)
     {
@@ -738,7 +738,7 @@ void print_offline_logs(void)
         }
     }
 
-    printf("========================\n");
+    // printf("========================\n");
 
     nvs_close(handle);
 }

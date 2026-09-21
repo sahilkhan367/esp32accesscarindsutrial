@@ -58,7 +58,7 @@ volatile bool reset_log_pending = true;
 volatile bool offline_upload_running = false;
 
 wifi_ap_record_t ap_info;
-
+void publish_door_status(void);
 
 // ==== ESP32 reset reason ======================
 
@@ -157,6 +157,7 @@ void reset_log_task(void *arg)
     if (reset_log_pending)
     {
         publish_reset_reason();
+        publish_door_status();
 
         reset_log_pending = false;
 
@@ -561,6 +562,32 @@ static void mqtt_event_handler(void *arg,
         // printf("DATA before if: %.*s\n", event->data_len, event->data);
         data_parsing(event->data, event->data_len);
         static char cached_gmail[128] = "";
+        static char cached_employee_id[32] = "";
+        static char cached_novel_emp[8] = "";
+
+        if (event->data_len>=10 && strncmp(event->data, "novel_emp:", 10) == 0)
+        {
+            int value_len = event->data_len - 10;
+        
+            if (value_len > 0 && value_len < sizeof(cached_novel_emp))
+            {
+                snprintf(
+                    cached_novel_emp,
+                    sizeof(cached_novel_emp),
+                    "%.*s",
+                    value_len,
+                    event->data + 10
+                );
+        
+                ESP_LOGI(
+                    TAG,
+                    "Cached Novel Employee: %s",
+                    cached_novel_emp
+                );
+            }
+        }
+        
+
         if (strncmp(event->data, "gmail:", 6) == 0)
         {
             snprintf(
@@ -572,6 +599,31 @@ static void mqtt_event_handler(void *arg,
             ESP_LOGI(TAG, "Cached gmail: %s", cached_gmail);
         }
         //-------------------------------------------------
+        if (strncmp(event->data, "employee_id:", 12) == 0)
+        {
+            int id_len = event->data_len - 12;
+    
+            if (id_len > 0 && id_len < sizeof(cached_employee_id))
+            {
+                snprintf(
+                    cached_employee_id,
+                    sizeof(cached_employee_id),
+                    "%.*s",
+                    id_len,
+                    event->data + 12
+                );
+    
+                ESP_LOGI(
+                    TAG,
+                    "Cached Employee ID: %s",
+                    cached_employee_id
+                );
+            }
+            else
+            {
+                ESP_LOGW(TAG, "Invalid Employee ID length");
+            }
+        }
 
         if (strncmp(event->data, "ADD", 3) == 0)
         {
@@ -587,11 +639,19 @@ static void mqtt_event_handler(void *arg,
             snprintf(
                 ack_msg,
                 sizeof(ack_msg),
-                "{\"device_id\":\"%s\",\"ADD\":\"%.*s\",\"status\":\"received\",\"gmail\":\"%s\"}",
+                "{\"device_id\":\"%s\","
+                "\"ADD\":\"%.*s\","
+                "\"status\":\"received\","
+                "\"gmail\":\"%s\","
+                "\"Employee_id\":\"%s\","
+                "\"novel_emp\":%s}",
                 DEVICE_ID,
                 event->data_len,
                 event->data,
-                cached_gmail);
+                cached_gmail,
+                cached_employee_id,
+                cached_novel_emp[0] ? cached_novel_emp : "0"
+            );
         
             esp_mqtt_client_publish(event->client, ack_topic, ack_msg, 0, 1, 1);
         }
@@ -638,7 +698,52 @@ static void mqtt_event_handler(void *arg,
 }
 
 
+void publish_door_status(void)
+{
+    if (!mqtt_connected)
+    {
+        ESP_LOGW(TAG, "MQTT not connected, cannot publish door status");
+        return;
+    }
 
+    char door_topic[128];
+    char door_payload[256];
+
+    // Topic
+    snprintf(
+        door_topic,
+        sizeof(door_topic),
+        "esp32/door/%s",
+        DEVICE_ID
+    );
+
+    // Assuming door_lock == true means LOCKED
+    const char *status = door_lock ? "LOCKED" : "UNLOCKED";
+
+    // Payload
+    snprintf(
+        door_payload,
+        sizeof(door_payload),
+        "{\"device_id\":\"%s\",\"door_status\":\"%s\"}",
+        DEVICE_ID,
+        status
+    );
+
+    ESP_LOGI(
+        TAG,
+        "Publishing door status: %s",
+        door_payload
+    );
+
+    esp_mqtt_client_publish(
+        mqtt_client,
+        door_topic,
+        door_payload,
+        0,
+        1,
+        1
+    );
+}
 
 
 
@@ -802,7 +907,7 @@ void app_main(void)
         NULL);
 
     esp_mqtt_client_start(mqtt_client);
-    xTaskCreate(reset_log_task, "reset_log_task", 4096, NULL, 5, NULL);  //task to send a reset logs
+
 
     //======== get message as data=======
     nvs_init();
@@ -814,8 +919,8 @@ void app_main(void)
     if(!door_lock){
         gpio_set_level(RELAY_1, 1);
         check_door_lock_change();
-        
     }
+    xTaskCreate(reset_log_task, "reset_log_task", 4096, NULL, 5, NULL);  //task to send a reset logs
 
 
 

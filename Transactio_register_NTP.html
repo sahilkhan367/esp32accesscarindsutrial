@@ -1,0 +1,3859 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ESP32 Access Hub – Device Manager</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap"
+        rel="stylesheet" />
+    <link
+  rel="stylesheet"
+  href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
+>
+    
+    <style>
+        /* ══════════════════════════════════════════
+   DESIGN TOKENS
+══════════════════════════════════════════ */
+        :root {
+            --bg-base: #080b12;
+            --bg-surface: #0d1117;
+            --bg-card: #131922;
+            --bg-card-hover: #1a2233;
+            --bg-elevated: #1c2540;
+            --border: rgba(255, 255, 255, 0.07);
+            --border-hover: rgba(255, 255, 255, 0.14);
+            --text-primary: #e8eeff;
+            --text-secondary: #7b85a3;
+            --text-muted: #3e4a66;
+
+            --accent: #3b82f6;
+            --accent-glow: rgba(59, 130, 246, 0.25);
+            --accent-green: #22c55e;
+            --accent-red: #ef4444;
+            --accent-amber: #f59e0b;
+
+            --grad-btn: linear-gradient(135deg, #2563eb, #7c3aed);
+            --grad-card: linear-gradient(135deg, #1e2a45, #131922);
+
+            --radius-sm: 10px;
+            --radius-md: 16px;
+            --radius-lg: 20px;
+            --t: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* ══════════════════════════════════════════
+   RESET & BASE
+══════════════════════════════════════════ */
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg-base);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+        }
+
+        /* ══════════════════════════════════════════
+   HEADER
+══════════════════════════════════════════ */
+        .header {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(24px);
+            background: rgba(8, 11, 18, 0.88);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .header-inner {
+            max-width: 1320px;
+            margin: 0 auto;
+            padding: 0 28px;
+            height: 70px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .logo-icon-wrap {
+            width: 42px;
+            height: 42px;
+            background: linear-gradient(135deg, #0f2460, #3b82f6);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);
+        }
+
+        .logo-svg {
+            width: 22px;
+            height: 22px;
+            color: #fff;
+        }
+
+        .logo-text {
+            display: block;
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: -0.3px;
+        }
+
+        .logo-sub {
+            display: block;
+            font-size: 0.72rem;
+            color: var(--text-secondary);
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .status-pill {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.25);
+            border-radius: 999px;
+            padding: 6px 14px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--accent-green);
+        }
+
+        .status-dot {
+            width: 7px;
+            height: 7px;
+            background: var(--accent-green);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+                box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
+            }
+
+            50% {
+                opacity: 0.8;
+                box-shadow: 0 0 0 5px rgba(34, 197, 94, 0);
+            }
+        }
+
+        .status-pill.error {
+            background: rgba(239, 68, 68, 0.1);
+            border-color: rgba(239, 68, 68, 0.25);
+            color: var(--accent-red);
+        }
+
+        .status-pill.error .status-dot {
+            background: var(--accent-red);
+            animation: none;
+        }
+
+        .card-count {
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            padding: 6px 14px;
+            border-radius: 999px;
+        }
+
+        /* ══════════════════════════════════════════
+   BUTTONS
+══════════════════════════════════════════ */
+        .btn-primary {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--grad-btn);
+            color: #fff;
+            border: none;
+            padding: 10px 22px;
+            border-radius: 999px;
+            font-size: 0.88rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--t);
+            box-shadow: 0 4px 20px rgba(124, 58, 237, 0.3);
+            font-family: inherit;
+        }
+
+        .btn-primary svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 32px rgba(124, 58, 237, 0.45);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
+        .btn-ghost {
+            background: transparent;
+            border: 1px solid var(--border-hover);
+            color: var(--text-secondary);
+            padding: 10px 20px;
+            border-radius: 999px;
+            font-size: 0.88rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: var(--t);
+            font-family: inherit;
+        }
+
+        .btn-ghost:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #b91c1c, #ef4444);
+            color: #fff;
+            border: none;
+            padding: 10px 22px;
+            border-radius: 999px;
+            font-size: 0.88rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--t);
+            font-family: inherit;
+        }
+
+        .btn-danger:hover {
+            opacity: 0.85;
+            transform: translateY(-1px);
+        }
+
+        .btn-icon-sm {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: var(--t);
+        }
+
+        .btn-icon-sm svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .btn-icon-sm:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-primary);
+        }
+
+        /* ══════════════════════════════════════════
+   TOOLBAR
+══════════════════════════════════════════ */
+        .toolbar {
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-surface);
+            padding: 14px 28px;
+        }
+
+        .toolbar-inner {
+            max-width: 1320px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .search-wrap {
+            position: relative;
+            flex: 1;
+            min-width: 220px;
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 16px;
+            height: 16px;
+            color: var(--text-muted);
+            pointer-events: none;
+        }
+
+        .search-input {
+            width: 100%;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            padding: 10px 14px 10px 40px;
+            font-size: 0.88rem;
+            font-family: inherit;
+            outline: none;
+            transition: var(--t);
+        }
+
+        .search-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        .search-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .filter-btn {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: 6px 16px;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: var(--t);
+            font-family: inherit;
+        }
+
+        .filter-btn:hover,
+        .filter-btn.active {
+            background: var(--grad-btn);
+            border-color: transparent;
+            color: #fff;
+        }
+
+        /* stats bar removed */
+
+        /* ══════════════════════════════════════════
+   MAIN & GRID
+══════════════════════════════════════════ */
+        .main {
+            max-width: 1320px;
+            margin: 0 auto;
+            padding: 24px 28px 60px;
+        }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 14px;
+        }
+
+        /* ══════════════════════════════════════════
+   EMPTY STATE
+══════════════════════════════════════════ */
+        .empty-state {
+            grid-column: 1/-1;
+            text-align: center;
+            padding: 80px 24px;
+            color: var(--text-secondary);
+        }
+
+        .empty-icon {
+            font-size: 4rem;
+            margin-bottom: 16px;
+        }
+
+        .empty-state h3 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .empty-state p {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
+        /* ══════════════════════════════════════════
+   DEVICE CARD
+══════════════════════════════════════════ */
+        .card {
+            position: relative;
+            background: var(--grad-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            cursor: default;
+            transition: var(--t);
+            animation: cardIn 0.45s cubic-bezier(0.4, 0, 0.2, 1) both;
+        }
+
+        @keyframes cardIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px) scale(0.98);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        .card:hover {
+            border-color: rgba(59, 130, 246, 0.3);
+            transform: translateY(-4px);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(59, 130, 246, 0.1);
+            background: var(--bg-card-hover);
+        }
+
+        /* Accent strip */
+        .card-strip {
+            height: 4px;
+            width: 100%;
+            background: linear-gradient(90deg, #2563eb, #7c3aed, #06b6d4);
+        }
+
+        .card.synced .card-strip {
+            background: linear-gradient(90deg, #15803d, #22c55e);
+        }
+
+        .card.failed .card-strip {
+            background: linear-gradient(90deg, #b91c1c, #ef4444);
+        }
+
+        .card.local .card-strip {
+            background: linear-gradient(90deg, #92400e, #f59e0b);
+        }
+
+        .card-body {
+            padding: 12px 14px;
+        }
+
+        /* Card top row */
+        .card-top {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        /* .device-icon {
+            width: 32px;
+            height: 32px;
+            flex-shrink: 0;
+            background: linear-gradient(135deg, #0f2460, #1e3a7a);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+        } */
+
+        .device-icon {
+    width: 38px;
+    height: 38px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 10px;
+
+    font-size: 18px;
+
+    transition: all 0.2s ease;
+}
+
+/* Ethernet */
+.device-icon.ethernet {
+    color: #5eead4;
+    background: rgba(20, 184, 166, 0.08);
+    border: 1px solid rgba(20, 184, 166, 0.16);
+}
+
+/* WiFi */
+.device-icon.wifi {
+    color: #93c5fd;
+    background: rgba(59, 130, 246, 0.08);
+    border: 1px solid rgba(59, 130, 246, 0.16);
+}
+
+/* Unknown */
+.device-icon.unknown {
+    color: #94a3b8;
+    background: rgba(148, 163, 184, 0.06);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+        .card-actions {
+            display: flex;
+            gap: 6px;
+            opacity: 0;
+            transition: var(--t);
+        }
+
+        .card:hover .card-actions {
+            opacity: 1;
+        }
+
+        .icon-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            border: 1px solid var(--border-hover);
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: var(--t);
+            font-size: 0.8rem;
+        }
+
+        .icon-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+        }
+
+        .icon-btn.delete:hover {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: #ef4444;
+            color: #ef4444;
+        }
+
+        .icon-btn.reset:hover {
+            background: rgba(245, 158, 11, 0.15);
+            border-color: var(--accent-amber);
+            color: var(--accent-amber);
+        }
+
+        .icon-btn.edit:hover {
+            background: rgba(99, 102, 241, 0.15);
+            border-color: #6366f1;
+            color: #6366f1;
+        }
+
+        .icon-btn.view:hover {
+            background: rgba(59, 130, 246, 0.15);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        /* Device ID */
+        .device-id {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 2px;
+            word-break: break-all;
+        }
+
+        .sync-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 999px;
+            margin-bottom: 10px;
+        }
+
+        .sync-status.synced {
+            background: rgba(34, 197, 94, 0.12);
+            color: #4ade80;
+            border: 1px solid rgba(34, 197, 94, 0.25);
+        }
+
+        .sync-status.failed {
+            background: rgba(239, 68, 68, 0.12);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.25);
+        }
+
+        .sync-status.local {
+            background: rgba(245, 158, 11, 0.12);
+            color: #fbbf24;
+            border: 1px solid rgba(245, 158, 11, 0.25);
+        }
+
+        /* Fields */
+        .fields-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+
+        .field-item {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px 8px;
+        }
+
+        .field-key-label {
+            font-size: 0.68rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            margin-bottom: 3px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .field-val {
+            font-size: 0.88rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            word-break: break-all;
+        }
+
+        .field-val.accent {
+            color: #93bbfd;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* inserted_id */
+        .inserted-id-row {
+            background: rgba(34, 197, 94, 0.06);
+            border: 1px solid rgba(34, 197, 94, 0.15);
+            border-radius: 8px;
+            padding: 8px 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.75rem;
+            overflow: hidden;
+        }
+
+        .inserted-id-label {
+            color: var(--accent-green);
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .inserted-id-val {
+            font-family: 'JetBrains Mono', monospace;
+            color: #6ee7b7;
+            font-size: 0.72rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .no-api-row {
+            background: rgba(245, 158, 11, 0.06);
+            border: 1px solid rgba(245, 158, 11, 0.15);
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 0.75rem;
+            color: #fbbf24;
+        }
+
+        /* Card footer */
+        .card-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid var(--border);
+            font-size: 0.65rem;
+            color: var(--text-muted);
+        }
+
+        /* ── OVERLAY (details on hover) ── */
+        .card-overlay {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg, rgba(8, 11, 18, 0) 25%, rgba(8, 11, 18, 0.96) 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            padding: 28px 22px 22px;
+            opacity: 0;
+            transform: translateY(6px);
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            pointer-events: none;
+        }
+
+        .card:hover .card-overlay {
+            opacity: 1;
+            transform: translateY(0);
+            pointer-events: auto;
+        }
+
+        .overlay-json {
+            background: rgba(13, 17, 23, 0.9);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            border-radius: var(--radius-sm);
+            padding: 14px 16px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.76rem;
+            color: #a5f3fc;
+            line-height: 1.7;
+            backdrop-filter: blur(10px);
+        }
+
+        .oj-key {
+            color: #93c5fd;
+        }
+
+        .oj-str {
+            color: #6ee7b7;
+        }
+
+        .oj-id {
+            color: #fde68a;
+        }
+
+        .oj-punct {
+            color: var(--text-secondary);
+        }
+
+        /* ══════════════════════════════════════════
+   MODAL
+══════════════════════════════════════════ */
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(10px);
+            z-index: 200;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .modal-backdrop.open {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .modal {
+            background: var(--bg-card);
+            border: 1px solid var(--border-hover);
+            border-radius: var(--radius-lg);
+            width: 100%;
+            max-width: 580px;
+            max-height: 92vh;
+            overflow-y: auto;
+            transform: scale(0.95) translateY(16px);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .modal-backdrop.open .modal {
+            transform: scale(1) translateY(0);
+        }
+
+        .modal-sm {
+            max-width: 440px;
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 24px 24px 0;
+            margin-bottom: 18px;
+        }
+
+        .modal-title-group h2 {
+            font-size: 1.15rem;
+            font-weight: 700;
+        }
+
+        .modal-subtitle {
+            font-size: 0.72rem;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--accent);
+            background: rgba(59, 130, 246, 0.1);
+            padding: 3px 8px;
+            border-radius: 4px;
+            display: inline-block;
+            margin-top: 4px;
+        }
+
+        .modal-close {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: var(--t);
+        }
+
+        .modal-close svg {
+            width: 15px;
+            height: 15px;
+        }
+
+        .modal-close:hover {
+            background: rgba(239, 68, 68, 0.12);
+            border-color: #ef4444;
+            color: #ef4444;
+        }
+
+        .modal-body {
+            padding: 0 24px 16px;
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            padding: 18px 24px;
+            border-top: 1px solid var(--border);
+        }
+
+        .delete-msg {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        /* ── JSON Preview ── */
+        .json-preview {
+            margin: 0 24px 18px;
+            background: var(--bg-surface);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+        }
+
+        .json-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 14px;
+            background: rgba(59, 130, 246, 0.08);
+            border-bottom: 1px solid rgba(59, 130, 246, 0.15);
+        }
+
+        .json-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .json-method {
+            font-size: 0.7rem;
+            font-weight: 700;
+            color: #fff;
+            background: var(--grad-btn);
+            padding: 2px 10px;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .json-body {
+            padding: 14px 16px;
+            margin: 0;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: #93c5fd;
+            line-height: 1.75;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .response-json {
+            color: #6ee7b7;
+        }
+
+        .resp-badge {
+            font-size: 0.72rem;
+            font-weight: 700;
+            background: rgba(34, 197, 94, 0.15);
+            color: #4ade80;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            padding: 3px 10px;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .resp-badge.error {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+
+        /* ── Form ── */
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .form-group.full {
+            grid-column: 1/-1;
+        }
+
+        label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        select.form-control {
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%237b85a3' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            padding-right: 38px;
+            cursor: pointer;
+        }
+
+        select.form-control option {
+            background: #131922;
+            color: #e8eeff;
+        }
+
+        .field-key {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #93c5fd;
+            text-transform: none;
+            letter-spacing: 0;
+        }
+
+        .req {
+            color: var(--accent-red);
+            margin-left: 3px;
+        }
+
+        .form-control {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            padding: 10px 14px;
+            font-size: 0.88rem;
+            font-family: inherit;
+            outline: none;
+            transition: var(--t);
+            resize: none;
+        }
+
+        .form-control.mono {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+        }
+
+        .form-control.small {
+            font-size: 0.8rem;
+        }
+
+        .form-control:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        .form-control::placeholder {
+            color: var(--text-muted);
+        }
+
+        .field-hint {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            margin-top: 5px;
+        }
+
+        .form-control[type="file"] {
+            padding: 5px !important;
+        }
+
+        .form-control[type="file"]::file-selector-button {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(124, 58, 237, 0.12));
+            border: 1px solid rgba(59, 130, 246, 0.35);
+            border-radius: 6px;
+            color: #93c5fd;
+            padding: 6px 14px;
+            margin-right: 14px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .form-control[type="file"]::file-selector-button:hover {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(124, 58, 237, 0.2));
+            border-color: rgba(59, 130, 246, 0.6);
+            color: #e0e7ff;
+        }
+
+        /* ══════════════════════════════════════════
+   TOAST
+══════════════════════════════════════════ */
+        .toast {
+            position: fixed;
+            bottom: 28px;
+            right: 28px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-hover);
+            border-radius: var(--radius-sm);
+            padding: 14px 22px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-primary);
+            z-index: 999;
+            transform: translateY(80px);
+            opacity: 0;
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s;
+            pointer-events: none;
+            max-width: 320px;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        /* ══════════════════════════════════════════
+   SCROLLBAR
+══════════════════════════════════════════ */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-base);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 99px;
+        }
+
+        /* ══════════════════════════════════════════
+   RESPONSIVE
+══════════════════════════════════════════ */
+        @media (max-width: 660px) {
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .form-group.full {
+                grid-column: 1;
+            }
+
+            .cards-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .stats-inner {
+                gap: 0;
+                overflow-x: auto;
+            }
+
+            .stat-item {
+                padding: 0 16px;
+                min-width: 90px;
+            }
+
+            .header-inner {
+                padding: 0 16px;
+            }
+
+            .stat-label {
+                font-size: 0.62rem;
+            }
+        }
+
+        /* ══════════════════════════════════════════
+   HEALTH BADGE
+══════════════════════════════════════════ */
+        .card-top-right {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 6px;
+        }
+
+        .health-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.68rem;
+            font-weight: 600;
+            padding: 3px 9px;
+            border-radius: 999px;
+            white-space: nowrap;
+            line-height: 1.4;
+        }
+
+        .health-badge.online {
+            background: rgba(34, 197, 94, 0.12);
+            color: #4ade80;
+            border: 1px solid rgba(34, 197, 94, 0.28);
+        }
+
+        .health-badge.offline {
+            background: rgba(239, 68, 68, 0.12);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.28);
+        }
+
+        .health-badge.unknown {
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--text-muted);
+            border: 1px solid var(--border);
+        }
+
+        .version-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            padding: 3px 9px;
+            border-radius: 999px;
+            white-space: nowrap;
+            line-height: 1.4;
+            background: rgba(59, 130, 246, 0.12);
+            color: #93c5fd;
+            border: 1px solid rgba(59, 130, 246, 0.28);
+        }
+
+        .version-badge.unknown {
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--text-muted);
+            border: 1px solid var(--border);
+        }
+
+        .health-time {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6rem;
+            opacity: 0.75;
+            margin-left: 2px;
+        }
+
+        /* ── View Users Button ─────────────────────────── */
+        .btn-view-users {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 11px 16px;
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.12));
+            border: 1px solid rgba(99, 102, 241, 0.35);
+            border-radius: 10px;
+            color: #a5b4fc;
+            font-size: 0.85rem;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all .2s;
+            letter-spacing: 0.01em;
+        }
+
+        .btn-view-users svg {
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+        }
+
+        .btn-view-users.card-users-btn {
+            margin: 10px 0 2px;
+        }
+
+        .btn-view-users:hover {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.28), rgba(139, 92, 246, 0.22));
+            border-color: rgba(99, 102, 241, 0.6);
+            color: #c7d2fe;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px rgba(99, 102, 241, 0.2);
+        }
+
+        /* ── OTA Update Button ────────────────────────── */
+        .btn-ota {
+            width: 100%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 11px 16px;
+            margin-top: 8px;
+            background: linear-gradient(135deg, rgba(20, 184, 166, 0.15), rgba(16, 185, 129, 0.12));
+            border: 1px solid rgba(20, 184, 166, 0.35);
+            border-radius: 10px;
+            color: #99f6e4;
+            font-size: 0.85rem;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all .2s;
+            letter-spacing: 0.01em;
+        }
+
+        .btn-ota svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .btn-ota:hover {
+            background: linear-gradient(135deg, rgba(20, 184, 166, 0.28), rgba(16, 185, 129, 0.22));
+            border-color: rgba(20, 184, 166, 0.6);
+            color: #ccfbf1;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px rgba(20, 184, 166, 0.15);
+        }
+
+        /* ── Reset Card Button ────────────────────────── */
+        /* .btn-reset-card {
+            width: 100%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 11px 16px;
+            margin-top: 8px;
+            background: linear-gradient(135deg, rgba(244, 63, 94, 0.1), rgba(225, 29, 72, 0.08));
+            border: 1px solid rgba(244, 63, 94, 0.3);
+            border-radius: 10px;
+            color: #fda4af;
+            font-size: 0.85rem;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all .2s;
+            letter-spacing: 0.01em;
+        }
+
+        .btn-reset-card svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .btn-reset-card:hover {
+            background: linear-gradient(135deg, rgba(244, 63, 94, 0.22), rgba(225, 29, 72, 0.18));
+            border-color: rgba(244, 63, 94, 0.6);
+            color: #fff1f2;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px rgba(244, 63, 94, 0.15);
+        } */
+
+
+ .btn-reset-card {
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 11px 16px;
+    margin-top: 8px;
+
+    background: linear-gradient(
+        135deg,
+        rgba(180, 130, 30, 0.10),
+        rgba(140, 90, 15, 0.06)
+    );
+
+    border: 1px solid rgba(180, 130, 30, 0.28);
+    border-radius: 10px;
+
+    color: #c9a84f;
+
+    font-size: 0.85rem;
+    font-weight: 600;
+    font-family: inherit;
+
+    cursor: pointer;
+    transition: all .2s;
+
+    letter-spacing: 0.01em;
+}
+
+.btn-reset-card svg {
+    width: 16px;
+    height: 16px;
+}
+
+.btn-reset-card:hover {
+    background: linear-gradient(
+        135deg,
+        rgba(180, 130, 30, 0.18),
+        rgba(140, 90, 15, 0.12)
+    );
+
+    border-color: rgba(180, 130, 30, 0.48);
+    color: #dfc36a;
+
+    transform: translateY(-1px);
+
+    box-shadow: 0 4px 18px rgba(180, 130, 30, 0.10);
+}
+
+
+
+
+
+
+
+
+
+                /* ── Unlock Card Button ────────────────────────── */
+        .btn-unlock-card {
+            width: 100%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 11px 16px;
+            margin-top: 8px;
+            background: linear-gradient(135deg, rgba(244, 63, 94, 0.1), rgba(225, 29, 72, 0.08));
+            border: 1px solid rgba(244, 63, 94, 0.3);
+            border-radius: 10px;
+            color: #fda4af;
+            font-size: 0.85rem;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all .2s;
+            letter-spacing: 0.01em;
+        }
+
+        .btn-unlock-card svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .btn-unlock-card:hover {
+            background: linear-gradient(135deg, rgba(244, 63, 94, 0.22), rgba(225, 29, 72, 0.18));
+            border-color: rgba(244, 63, 94, 0.6);
+            color: #fff1f2;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px rgba(244, 63, 94, 0.15);
+        }
+
+        /* ── Users Count Badge ─────────────────────────── */
+        .users-count-badge {
+            font-size: 0.72rem;
+            font-weight: 700;
+            padding: 3px 10px;
+            border-radius: 999px;
+            background: rgba(99, 102, 241, 0.18);
+            color: #a5b4fc;
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            letter-spacing: 0.02em;
+        }
+
+        /*adding chat gpt here*/
+        .card-unlock-btn {
+            width: 100%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        
+            padding: 11px 16px;
+            margin-top: 8px;
+        
+            border-radius: 10px;
+        
+            font-size: 0.85rem;
+            font-weight: 600;
+            font-family: inherit;
+        
+            cursor: pointer;
+        
+            transition: all 0.2s ease;
+        }
+        
+        .card-unlock-btn svg {
+            width: 17px;
+            height: 17px;
+        }
+        
+        
+        /* LOCKED → Unlock Door */
+        
+        .card-unlock-btn.door-locked {
+            background: linear-gradient(
+                135deg,
+                rgba(244, 63, 94, 0.12),
+                rgba(225, 29, 72, 0.08)
+            );
+        
+            border: 1px solid rgba(244, 63, 94, 0.35);
+            color: #fda4af;
+        }
+        
+        .card-unlock-btn.door-locked:hover {
+            background: linear-gradient(
+                135deg,
+                rgba(244, 63, 94, 0.22),
+                rgba(225, 29, 72, 0.18)
+            );
+        
+            border-color: rgba(244, 63, 94, 0.65);
+            color: #fff1f2;
+        
+            transform: translateY(-1px);
+        
+            box-shadow: 0 4px 20px rgba(244, 63, 94, 0.15);
+        }
+        
+        
+        /* UNLOCKED → Lock Door */
+        
+        .card-unlock-btn.door-unlocked {
+            background: linear-gradient(
+                135deg,
+                rgba(34, 197, 94, 0.12),
+                rgba(22, 163, 74, 0.08)
+            );
+        
+            border: 1px solid rgba(34, 197, 94, 0.35);
+            color: #86efac;
+        }
+        
+        .card-unlock-btn.door-unlocked:hover {
+            background: linear-gradient(
+                135deg,
+                rgba(34, 197, 94, 0.22),
+                rgba(22, 163, 74, 0.18)
+            );
+        
+            border-color: rgba(34, 197, 94, 0.65);
+            color: #f0fdf4;
+        
+            transform: translateY(-1px);
+        
+            box-shadow: 0 4px 20px rgba(34, 197, 94, 0.15);
+        }
+        
+        
+        /* While sending command */
+        
+        .card-unlock-btn:disabled {
+            opacity: 0.65;
+            cursor: wait;
+            transform: none;
+        }
+        .card-unlock-btn.door-unknown {
+            background: rgba(148, 163, 184, 0.08);
+            border: 1px solid rgba(148, 163, 184, 0.25);
+            color: #94a3b8;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+        
+        .card-unlock-btn.door-unknown:hover {
+            transform: none;
+            box-shadow: none;
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+        /* ── Add Employee Button ───────────────────────── */
+        .btn-add-employee {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            margin-left: 10px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: var(--t);
+            box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+        }
+
+        .btn-add-employee:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+            filter: brightness(1.1);
+        }
+
+        .btn-add-employee svg {
+            width: 14px;
+            height: 14px;
+        }
+
+        /* ── User Delete Button ────────────────────────── */
+        .btn-user-delete {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px;
+            height: 30px;
+            background: rgba(239, 68, 68, 0.1);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: var(--t);
+        }
+
+        .btn-user-delete:hover {
+            background: #ef4444;
+            color: #fff;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+        }
+
+        .btn-user-delete svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        /* ── Users Search Bar ─────────────────────────── */
+        .users-search-bar {
+            padding: 14px 16px;
+            background: rgba(255, 255, 255, 0.02);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .users-search-wrap {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .users-search-icon {
+            position: absolute;
+            left: 14px;
+            width: 14px;
+            height: 14px;
+            color: var(--text-muted);
+            pointer-events: none;
+        }
+
+        .users-search-input {
+            width: 100%;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            padding: 8px 12px 8px 38px;
+            font-size: 0.82rem;
+            font-family: inherit;
+            outline: none;
+            transition: var(--t);
+        }
+
+        .users-search-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        /* ── Users Panel Modal ─────────────────────────── */
+        .modal-users {
+            max-width: 800px;
+            width: 95%;
+        }
+
+        .modal-users .modal-body {
+            padding: 0;
+        }
+
+        /* ── Users List ────────────────────────────────── */
+        .users-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            max-height: 420px;
+            overflow-y: auto;
+            padding: 16px;
+        }
+
+        .users-list::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .users-list::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .users-list::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+
+        /* ── Users Table ───────────────────────────────── */
+        .users-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.84rem;
+        }
+
+        /* Sticky header */
+        .users-table thead tr {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: var(--bg-card);
+            border-bottom: 2px solid rgba(99, 102, 241, 0.35);
+        }
+
+        .users-table th {
+            padding: 10px 14px;
+            text-align: left;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.07em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+
+        .users-table th:first-child {
+            width: 40px;
+            text-align: center;
+        }
+
+        .users-table th:last-child {
+            width: 130px;
+        }
+
+        /* Body rows */
+        .users-table tbody tr {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            animation: rowIn .25s ease both;
+            transition: background .15s;
+        }
+
+        .users-table tbody tr:hover {
+            background: rgba(99, 102, 241, 0.08);
+        }
+
+        .users-table tbody tr:last-child {
+            border-bottom: none;
+        }
+
+        @keyframes rowIn {
+            from {
+                opacity: 0;
+                transform: translateY(6px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Cells */
+        .users-table td {
+            padding: 11px 14px;
+            color: var(--text-primary);
+            vertical-align: middle;
+        }
+
+        .ut-num {
+            text-align: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        .ut-gmail {
+            font-weight: 500;
+            max-width: 260px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .ut-rfid {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: #67e8f9;
+        }
+
+        /* Loading / Empty state inside users list */
+        .users-loading,
+        .users-empty {
+            text-align: center;
+            padding: 48px 24px;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .users-loading-spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid rgba(99, 102, 241, 0.2);
+            border-top-color: #6366f1;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            margin: 0 auto 14px;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .users-empty-icon {
+            font-size: 2.4rem;
+            margin-bottom: 10px;
+        }
+
+
+
+        /* last reset CSS */
+            
+        .last-reset-badge {
+            /* width: 100%; */
+            width: auto;
+            margin-left: 10px;
+            margin-right: 10px;
+            box-sizing: border-box;
+        
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        
+            gap: 3px;
+        
+            margin-top: 7px;
+            padding: 6px 9px;
+        
+            border-radius: 8px;
+        
+            background: linear-gradient(
+                135deg,
+                rgba(180, 130, 30, 0.09),
+                rgba(180, 130, 30, 0.04)
+            );
+        
+            border: 1px solid rgba(180, 130, 30, 0.22);
+        
+            box-shadow:
+                inset 0 1px 0 rgba(255,255,255,0.025),
+                0 2px 8px rgba(0,0,0,0.08);
+        
+            transition:
+                border-color .2s ease,
+                background .2s ease,
+                box-shadow .2s ease;
+        }
+        
+        .last-reset-badge:hover {
+            border-color: rgba(180, 130, 30, 0.34);
+        
+            background: linear-gradient(
+                135deg,
+                rgba(180, 130, 30, 0.12),
+                rgba(180, 130, 30, 0.055)
+            );
+        
+            box-shadow:
+                inset 0 1px 0 rgba(255,255,255,0.03),
+                0 3px 12px rgba(0,0,0,0.12);
+        }
+        
+        
+        /* ================================
+           RESET MAIN ROW
+        ================================ */
+        
+        .reset-main {
+            width: 100%;
+        
+            display: flex;
+            align-items: center;
+        
+            gap: 4px;
+        
+            min-width: 0;
+        
+            line-height: 1.1;
+        }
+        
+        .reset-icon {
+            flex-shrink: 0;
+        
+            width: 11px;
+            height: 11px;
+        
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        
+            font-size: 10px;
+        
+            color: #c9a84f;
+        }
+        
+        .reset-label {
+            flex-shrink: 0;
+        
+            color: #8b96aa;
+        
+            font-size: 0.70rem;
+            font-weight: 700;
+        
+            letter-spacing: 0.01em;
+        }
+        
+        .reset-value {
+            min-width: 0;
+        
+            color: #d7bb65;
+        
+            font-size: 0.70rem;
+            font-weight: 700;
+        
+            letter-spacing: 0.01em;
+        
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        
+        /* ================================
+           DATE / TIME
+        ================================ */
+        
+        .reset-details {
+            display: flex;
+            align-items: center;
+        
+            gap: 4px;
+        
+            padding-left: 15px;
+        
+            color: #707d94;
+        
+            font-size: 0.75rem;
+            font-weight: 500;
+        
+            letter-spacing: 0.01em;
+        
+            line-height: 1.1;
+        
+            white-space: nowrap;
+        }
+        
+        .reset-dot {
+            color: #4d586c;
+            font-size: 0.45rem;
+        }
+
+/* site selector drop down */
+
+/* ─────────────────────────────────────────
+   SITE SELECTOR
+───────────────────────────────────────── */
+
+#siteSelector {
+    min-width: 82px;
+    height: 36px;
+
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+
+    background:
+        linear-gradient(135deg, #2563eb, #7c3aed);
+
+    border: 1px solid rgba(124, 58, 237, 0.7);
+    border-radius: 999px;
+
+    color: #ffffff;
+
+    padding: 0 32px 0 14px;
+
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 0.8rem;
+    font-weight: 600;
+
+    cursor: pointer;
+
+    outline: none;
+
+    transition:
+        box-shadow 0.25s ease,
+        transform 0.2s ease,
+        border-color 0.25s ease;
+
+    /* Custom arrow */
+    background-image:
+        linear-gradient(135deg, #2563eb, #7c3aed),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+
+    background-repeat: no-repeat, no-repeat;
+    background-position: center, right 11px center;
+    background-size: 100% 100%, 13px 13px;
+}
+
+/* Hover */
+#siteSelector:hover {
+    border-color: rgba(255, 255, 255, 0.25);
+
+    box-shadow:
+        0 4px 18px rgba(59, 130, 246, 0.25),
+        0 0 0 1px rgba(124, 58, 237, 0.15);
+}
+
+/* Focus / opened state */
+#siteSelector:focus {
+    border-color: rgba(124, 58, 237, 0.9);
+
+    box-shadow:
+        0 0 0 3px rgba(59, 130, 246, 0.15),
+        0 6px 22px rgba(124, 58, 237, 0.2);
+}
+
+/* Options */
+#siteSelector option {
+    background: #131922;
+    color: #e8eeff;
+
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+/* Selected option */
+#siteSelector option:checked {
+    background: #2563eb;
+    color: #ffffff;
+}
+
+
+
+.ut-employee-id {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #93c5fd;
+    white-space: nowrap;
+}
+
+/* RFID */
+.ut-rfid {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #e8eeff;
+    white-space: nowrap;
+}
+
+/* Novel Employee badge */
+.novel-emp-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    min-width: 42px;
+    padding: 3px 9px;
+
+    border-radius: 999px;
+
+    font-size: 0.68rem;
+    font-weight: 700;
+
+    letter-spacing: 0.02em;
+}
+
+/* Novel Employee = 1 */
+.novel-emp-badge.yes {
+    background: rgba(34, 197, 94, 0.12);
+    color: #4ade80;
+    border: 1px solid rgba(34, 197, 94, 0.28);
+}
+
+/* Novel Employee = 0 */
+.novel-emp-badge.no {
+    background: rgba(148, 163, 184, 0.08);
+    color: #94a3b8;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+
+
+
+
+
+
+
+    </style>
+
+
+
+
+
+</head>
+
+<body>
+
+    <!-- ───── HEADER ───── -->
+    <header class="header">
+        <div class="header-inner">
+            <div class="logo">
+                <div class="logo-icon-wrap">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="logo-svg">
+                        <rect x="2" y="7" width="20" height="14" rx="2" />
+                        <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
+                        <circle cx="12" cy="14" r="2" />
+                        <path d="M12 12v-1M12 16v1M10.27 13l-.87-.5M13.73 15l.87.5M10.27 15l-.87.5M13.73 13l.87-.5" />
+                    </svg>
+                </div>
+                <div>
+                    <span class="logo-text">ESP32 Access Hub</span>
+                    <span class="logo-sub">Device Manager</span>
+                </div>
+            </div>
+            <div class="header-actions">
+                <div class="status-pill" id="apiStatus">
+                    <span class="status-dot"></span>
+                    <span id="apiStatusText">API Ready</span>
+                </div>
+                <span class="card-count" id="cardCount">0 Devices</span>
+                <button class="btn-primary" id="openModalBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <line x1="12" y1="5" x2="12" y2="19" />
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg>
+                    Add Device
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- ───── TOOLBAR ───── -->
+    <div class="toolbar">
+        <div class="toolbar-inner">
+            <div class="search-wrap">
+                <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+                <input id="searchInput" type="text" class="search-input"
+                    placeholder="Search by Device ID, Site, Floor…" />
+            </div>
+            <div class="filter-group">
+                <select id="siteSelector" class="filter-btn">
+                    <option value="ntp">NTP</option>
+                    <option value="nom">NOM</option>
+                    <option value="now">NOW</option>
+                    <option value="nbp">NBP</option>
+                    <option value="noc">NOC</option>
+                    <option value="noq">NOQ</option>
+                    <option value="nob">NOB</option>
+                </select>
+            </div>
+            <button class="btn-icon-sm" id="refreshBtn" title="Refresh Stats">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 4 23 10 17 10" />
+                    <polyline points="1 20 1 14 7 14" />
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+
+    <!-- ───── CARDS GRID ───── -->
+    <main class="main">
+        <div class="cards-grid" id="cardsGrid">
+            <div class="empty-state" id="emptyState">
+                <div class="empty-icon">�</div>
+                <h3>No devices registered</h3>
+                <p>Click <strong>Add Device</strong> to register your first ESP32 device.</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- ───── ADD / EDIT MODAL ───── -->
+    <div class="modal-backdrop" id="modalBackdrop">
+        <div class="modal" id="modal">
+            <div class="modal-header">
+                <h2 id="modalTitle">Register New Device</h2>
+                <button class="modal-close" id="closeModalBtn" aria-label="Close">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                </button>
+            </div>
+
+            <div class="modal-body">
+                <div class="form-grid">
+                    <div class="form-group full">
+                        <label for="fDeviceId">Device ID <span class="req">*</span></label>
+                        <select id="fDeviceId" class="form-control mono">
+                            <option value="">— Select Device ID —</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="fSite">Site <span class="req">*</span></label>
+                        <select id="fSite" class="form-control">
+                            <option value="">— Select Site —</option>
+                            <option value="NTP">NTP</option>
+                            <option value="NBP">NBP</option>
+                            <option value="NOC">NOC</option>
+                            <option value="NOQ">NOQ</option>
+                            <option value="NOM">NOM</option>
+                            <option value="NOW">NOW</option>
+                            <option value="NOB">NOB</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="fFloor">Floor <span class="req">*</span></label>
+                        <select id="fFloor" class="form-control">
+                            <option value="">— Select Floor —</option>
+                            <option value="GF">GF (Ground Floor)</option>
+                            <option value="1F">1F</option>
+                            <option value="2F">2F</option>
+                            <option value="3F">3F</option>
+                            <option value="4F">4F</option>
+                            <option value="5F">5F</option>
+                            <option value="6F">6F</option>
+                            <option value="7F">7F</option>
+                            <option value="8F">8F</option>
+                            <option value="9F">9F</option>
+                            <option value="10F">10F</option>
+                        </select>
+                    </div>
+                    <div class="form-group full">
+                        <label for="fCabin">Cabin <span class="req">*</span></label>
+                        <input id="fCabin" type="text" class="form-control" placeholder="e.g. Cabin_12" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn-ghost" id="cancelBtn">Cancel</button>
+                <button class="btn-primary" id="saveCardBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                    <span id="saveBtnText">Save Device</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ───── RESPONSE MODAL ───── -->
+    <div class="modal-backdrop" id="responseBackdrop">
+        <div class="modal modal-sm">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <h2 id="respTitle">Response</h2>
+                    <span class="resp-badge" id="respBadge">200 OK</span>
+                </div>
+                <button class="modal-close" id="closeRespBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <pre class="json-body response-json" id="respBody"></pre>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-primary" id="closeRespBtn2">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ───── DELETE CONFIRM ───── -->
+    <div class="modal-backdrop" id="deleteBackdrop">
+        <div class="modal modal-sm">
+            <div class="modal-header">
+                <h2>Remove Device?</h2>
+                <button class="modal-close" id="cancelDeleteBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p class="delete-msg">This will remove the device from local storage. The API record is unaffected.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-ghost" id="cancelDeleteBtn2">Cancel</button>
+                <button class="btn-danger" id="confirmDeleteBtn">Remove</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ───── USERS PANEL ───── -->
+    <div class="modal-backdrop" id="usersBackdrop">
+        <div class="modal modal-users" id="usersModal">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <h2 id="usersTitle">Registered Users</h2>
+                    <span class="users-count-badge" id="usersCountBadge">0 Users</span>
+                    <button class="btn-add-employee" id="openAddEmployeeModalBtn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <line x1="12" y1="5" x2="12" y2="19" />
+                            <line x1="5" y1="12" x2="19" y2="12" />
+                        </svg>
+                        Add Employee
+                    </button>
+                    <button class="btn-add-employee" id="openBulkUploadModalBtn" style="background: linear-gradient(135deg, #10b981, #059669); margin-left: 6px;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                        Bulk Add
+                    </button>
+                    <button class="btn-add-employee" id="deleteAllUsersBtn" style="background: linear-gradient(135deg, #ef4444, #b91c1c); margin-left: 6px;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                        Delete All
+                    </button>
+                </div>
+                <button class="modal-close" id="closeUsersBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="users-search-bar">
+                    <div class="users-search-wrap">
+                        <svg class="users-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <circle cx="11" cy="11" r="8" />
+                            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                        </svg>
+                        <input id="usersSearchInput" type="text" class="users-search-input"
+                            placeholder="Filter by Gmail or RFID…" />
+                    </div>
+                </div>
+                <div id="usersList" class="users-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ───── ADD EMPLOYEE MODAL ───── -->
+    <div class="modal-backdrop" id="employeeBackdrop">
+        <div class="modal modal-sm" id="employeeModal">
+            <div class="modal-header">
+                <h2 id="employeeModalTitle">Add New Employeee</h2>
+                <button class="modal-close" id="closeEmployeeModalBtn" aria-label="Close">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-grid">
+                    <div class="form-group full">
+                        <label for="employeeId">Employee ID</label>
+                        <input id="employeeId" type="number" class="form-control" placeholder="123" />
+                    </div>
+                    <div class="form-group full">
+                        <label for="eGmail">Email or Name<span class="req">*</span></label>
+                        <input id="eGmail" type="email" class="form-control" placeholder="example@noveloffice.in" />
+                    </div>
+                    <div class="form-group full">
+                        <label for="eRFID">RFID String <span class="req">*</span></label>
+                        <input id="eRFID" type="text" class="form-control mono" placeholder="e.g. 13072052" />
+                    </div>
+                    <div class="form-group full">
+                        <label style="display: flex; align-items: center; gap: 8px; font-weight: 500; cursor: pointer;">
+                            <input
+                                id="novelEmp"
+                                type="checkbox"
+                                style="width: 16px; height: 16px; cursor: pointer;"
+                            />
+                            Novel Employee
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-ghost" id="cancelEmployeeBtn">Cancel</button>
+                <button class="btn-primary" id="saveEmployeeBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                    <span id="saveEmployeeBtnText">Add Employee</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ───── BULK UPLOAD MODAL ───── -->
+    <div class="modal-backdrop" id="bulkUploadBackdrop">
+        <div class="modal modal-sm" id="bulkUploadModal">
+            <div class="modal-header">
+                <h2 id="bulkUploadModalTitle">Bulk Add Upload</h2>
+                <button class="modal-close" id="closeBulkUploadModalBtn" aria-label="Close">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-grid">
+                    <div class="form-group full">
+                        <label for="bCommand">Command <span class="req">*</span></label>
+                        <select id="bCommand" class="form-control">
+                            <option value="bulk_add">Bulk Add</option>
+                        </select>
+                    </div>
+                    <div class="form-group full">
+                        <label for="bFileInput">Excel File <span class="req">*</span></label>
+                        <input id="bFileInput" type="file" accept=".xlsx, .xls, .csv" class="form-control" style="padding: 7px 10px;" />
+                    </div>
+                </div>
+                <p id="bUploadStatus" style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 10px;"></p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-ghost" id="cancelBulkUploadBtn">Cancel</button>
+                <button class="btn-primary" id="saveBulkUploadBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                    <span id="saveBulkUploadBtnText">Upload</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ───── TOAST ───── -->
+    <div class="toast" id="toast"></div>
+
+    <script>
+// ══════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════
+
+const SITE_URLS = {
+    ntp: 'https://ntpaccesshub.novelinfra.com',
+    nom: 'https://esp32accesshub.novelinfra.com',
+    now: 'https://nowaccesshub.novelinfra.com',
+    nbp: 'https://nbpaccesshub.novelinfra.com',
+    noc: 'https://nocaccesshub.novelinfra.com',
+    noq: 'https://noqaccesshub.novelinfra.com',
+    nob: 'https://nobaccesshub.novelinfra.com'
+};
+
+// Restore previously selected site
+let activeFilter = localStorage.getItem('selectedSite') || 'ntp';
+
+// Set BASE_URL according to selected site
+let BASE_URL = SITE_URLS[activeFilter];
+
+// Dynamic URLs
+const getURL = () => `${BASE_URL}/get-esp32`;
+const postURL = () => `${BASE_URL}/add-esp32`;
+const healthURL = () => `${BASE_URL}/health-esp32`;
+
+// ─── State ─────────────────────────────────────────────
+let devices = [];   // populated from GET API
+let healthMap = {};   // device_id → { status, time, date }
+let editingId = null;
+let deleteTarget = null;
+
+let currentUsers = [];
+
+// ─── DOM ────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const cardsGrid = $('cardsGrid');
+const emptyState = $('emptyState');
+const cardCount = $('cardCount');
+const searchInput = $('searchInput');
+const openModalBtn = $('openModalBtn');
+const closeModalBtn = $('closeModalBtn');
+const cancelBtn = $('cancelBtn');
+const saveCardBtn = $('saveCardBtn');
+const saveBtnText = $('saveBtnText');
+const modalBackdrop = $('modalBackdrop');
+const deleteBackdrop = $('deleteBackdrop');
+const responseBackdrop = $('responseBackdrop');
+const cancelDeleteBtn = $('cancelDeleteBtn');
+const cancelDeleteBtn2 = $('cancelDeleteBtn2');
+const confirmDeleteBtn = $('confirmDeleteBtn');
+const closeRespBtn = $('closeRespBtn');
+const closeRespBtn2 = $('closeRespBtn2');
+const modalTitle = $('modalTitle');
+const toast = $('toast');
+const respBody = $('respBody');
+const respTitle = $('respTitle');
+const respBadge = $('respBadge');
+const apiStatus = $('apiStatus');
+const apiStatusText = $('apiStatusText');
+const refreshBtn = $('refreshBtn');
+const usersBackdrop = $('usersBackdrop');
+const usersTitle = $('usersTitle');
+const usersCountBadge = $('usersCountBadge');
+const usersList = $('usersList');
+const closeUsersBtn = $('closeUsersBtn');
+const usersSearchInput = $('usersSearchInput');
+const openAddEmployeeModalBtn = $('openAddEmployeeModalBtn');
+const employeeBackdrop = $('employeeBackdrop');
+const closeEmployeeModalBtn = $('closeEmployeeModalBtn');
+const cancelEmployeeBtn = $('cancelEmployeeBtn');
+const saveEmployeeBtn = $('saveEmployeeBtn');
+const saveEmployeeBtnText = $('saveEmployeeBtnText');
+const eGmail = $('eGmail');
+const eRFID = $('eRFID');
+
+const openBulkUploadModalBtn = $('openBulkUploadModalBtn');
+const deleteAllUsersBtn = $('deleteAllUsersBtn');
+const bulkUploadBackdrop = $('bulkUploadBackdrop');
+const closeBulkUploadModalBtn = $('closeBulkUploadModalBtn');
+const cancelBulkUploadBtn = $('cancelBulkUploadBtn');
+const saveBulkUploadBtn = $('saveBulkUploadBtn');
+const saveBulkUploadBtnText = $('saveBulkUploadBtnText');
+const bCommand = $('bCommand');
+const bFileInput = $('bFileInput');
+const bUploadStatus = $('bUploadStatus');
+
+// Form fields
+const fDeviceId = $('fDeviceId');
+const fSite = $('fSite');
+const fFloor = $('fFloor');
+const fCabin = $('fCabin');
+
+const employeeId = document.getElementById('employeeId');
+
+const siteSelector = $('siteSelector');
+
+siteSelector.value = activeFilter;
+
+siteSelector.addEventListener('change', async function () {
+
+    const selectedSite = this.value;
+
+    // Save selected site
+    localStorage.setItem('selectedSite', selectedSite);
+
+    // Update state
+    activeFilter = selectedSite;
+
+    // Update backend URL
+    BASE_URL = SITE_URLS[selectedSite];
+
+    console.log('================================');
+    console.log('Selected Site:', selectedSite);
+    console.log('BASE_URL:', BASE_URL);
+    console.log('================================');
+
+    // Load data from selected site
+    await fetchDevices();
+});
+
+
+// Stats (removed — stats bar deleted)
+
+// ─── Populate Device ID Dropdown ────────────────────────
+(function populateDeviceIds() {
+  for (let i = 1; i <= 50; i++) {
+    const val = `esp32_${String(i).padStart(3, '0')}`;
+    const opt = document.createElement('option');
+    opt.value = val;
+    opt.textContent = val;
+    fDeviceId.appendChild(opt);
+  }
+})();
+
+// ══════════════════════════════════════════════════════
+//  FETCH FROM API
+// ══════════════════════════════════════════════════════
+async function fetchDevices() {
+  setApiStatus('loading', '⏳ Loading…');
+  showSkeleton();
+
+  try {
+    // Fetch devices + health status in parallel
+    const [devRes, healthRes] = await Promise.all([
+  fetch(getURL()),
+  fetch(healthURL()).catch(() => null),
+]);
+
+    if (!devRes.ok) throw new Error(`HTTP ${devRes.status}`);
+    const devJson = await devRes.json();
+    devices = (devJson.data || devJson || []).map(normalise);
+
+    // Build health map: device_id → health record
+    if (healthRes && healthRes.ok) {
+      const hJson = await healthRes.json();
+      healthMap = {};
+      (hJson.data || []).forEach(h => {
+        healthMap[h.device_id] = {
+            status: h.status,
+            time: h.time,
+            date: h.date,
+            version: h.version,
+            Network: h.Network,
+            door_status: h.door_status,
+            last_reset: h.last_reset,
+            Last_reset_time: h.Last_reset_time,
+            Last_reset_data: h.Last_reset_data
+        };
+      });
+    }
+
+    setApiStatus('ok', '✓ Live Data');
+    renderAll();
+  } catch (err) {
+    setApiStatus('error', '✗ Offline');
+    showToast(`❌ Could not reach API: ${err.message}`);
+    renderAll();   // render empty / stale state
+  }
+}
+
+// Normalise API record to internal shape
+function normalise(d) {
+  return {
+    id: d._id || d.id,
+    device_id: d.device_id || '',
+    site: d.site || '',
+    floor: d.floor || '',
+    cabin: d.cabin || '',
+    created: d.created_at ? new Date(d.created_at).getTime() : Date.now(),
+    inserted_id: d._id || null,
+    synced: true,
+  };
+}
+
+// ══════════════════════════════════════════════════════
+//  SKELETON LOADER
+// ══════════════════════════════════════════════════════
+function showSkeleton() {
+  [...cardsGrid.querySelectorAll('.card, .skeleton-card, .empty-state')].forEach(el => el.remove());
+  emptyState.style.display = 'none';
+  for (let i = 0; i < 3; i++) {
+    const s = document.createElement('div');
+    s.className = 'skeleton-card';
+    s.innerHTML = `
+      <div class="sk-strip"></div>
+      <div class="sk-body">
+        <div class="sk-row"><div class="sk-box sk-icon"></div><div class="sk-box sk-title"></div></div>
+        <div class="sk-box sk-badge"></div>
+        <div class="sk-grid">
+          <div class="sk-box sk-field"></div><div class="sk-box sk-field"></div>
+          <div class="sk-box sk-field-wide"></div>
+        </div>
+        <div class="sk-box sk-id-bar"></div>
+      </div>`;
+    cardsGrid.appendChild(s);
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  RENDER
+// ══════════════════════════════════════════════════════
+function renderAll() {
+//   renderFilters();
+  renderCards();
+}
+
+function renderCards() {
+  const q = searchInput.value.trim().toLowerCase();
+  const filtered = devices.filter(d => {
+    const matchFilter = String(d.site || '').toLowerCase() === activeFilter;
+    const matchSearch = !q || [d.device_id, d.site, d.floor, d.cabin]
+      .some(v => v && v.toLowerCase().includes(q));
+    return matchFilter && matchSearch;
+  });
+
+  // Remove skeletons + old cards
+  [...cardsGrid.querySelectorAll('.card, .skeleton-card')].forEach(el => el.remove());
+  emptyState.style.display = filtered.length === 0 ? 'block' : 'none';
+  cardCount.textContent = `${devices.length} Device${devices.length !== 1 ? 's' : ''}`;
+
+  filtered.forEach((d, i) => cardsGrid.appendChild(buildCard(d, i)));
+}
+
+function buildCard(d, delay) {
+  const health = healthMap[d.device_id];
+
+  const lastReset = health?.last_reset || 'unknown';
+const lastResetTime = health?.Last_reset_time || 'unknown';
+const lastResetDate = health?.Last_reset_data || 'unknown';
+
+const resetKnown =
+    lastReset.toLowerCase() !== 'unknown' &&
+    lastResetTime.toLowerCase() !== 'unknown' &&
+    lastResetDate.toLowerCase() !== 'unknown';
+
+const lastResetBadge = `
+    <div class="last-reset-badge ${resetKnown ? 'reset-known' : 'reset-unknown'}">
+
+        <div class="reset-main">
+            <span class="reset-icon">↻</span>
+            <span class="reset-label">Last Reset</span>
+            <span class="reset-value">
+                ${resetKnown ? lastReset : 'Unknown'}
+            </span>
+        </div>
+
+        ${
+            resetKnown
+                ? `
+                <div class="reset-details">
+                    <span>${lastResetTime}</span>
+                    <span class="reset-dot">•</span>
+                    <span>${lastResetDate}</span>
+                </div>
+                `
+                : ''
+        }
+
+    </div>
+`;
+
+
+
+  const networkType = String(
+      health?.Network || 'unknown'
+  ).toLowerCase();
+  
+  let deviceIcon = '';
+  
+if (networkType === 'ethernet') {
+
+    deviceIcon = `
+        <i class="fa-solid fa-ethernet" aria-hidden="true"></i>
+    `;
+
+} else if (networkType === 'wifi') {
+
+    deviceIcon = `
+        <i class="fa-solid fa-wifi" aria-hidden="true"></i>
+    `;
+
+} else {
+
+    deviceIcon = `
+        <i class="fa-solid fa-circle-question" aria-hidden="true"></i>
+    `;
+}
+  const doorStatus = String(health?.door_status || 'unknown').toUpperCase();
+  const isDoorLocked = doorStatus === 'LOCKED';
+  const isDoorUnlocked = doorStatus === 'UNLOCKED';
+  const isDoorUnknown = doorStatus === 'UNKNOWN';
+  const online = health && health.status === 'online';
+  const offline = health && health.status !== 'online';
+  const healthBadge = health
+    ? `<span class="health-badge ${online ? 'online' : 'offline'}">
+         ${online ? '🟢 Online' : '🔴 Offline'}
+         <span class="health-time">${health.time || ''}</span>
+       </span>`
+    : `<span class="health-badge offline">🔴 Offline</span>`;
+
+  const vStr = health && health.version ? health.version : '';
+  const isUnknownVer = !vStr || vStr === 'unknown';
+  const versionBadge = health 
+    ? `<span class="version-badge ${isUnknownVer ? 'unknown' : ''}">🏷️ ${isUnknownVer ? 'unknown' : vStr}</span>` 
+    : `<span class="version-badge unknown">🏷️ unknown</span>`;
+
+  const el = document.createElement('div');
+  el.className = 'card synced';
+  el.dataset.id = d.id;
+  el.style.animationDelay = `${delay * 55}ms`;
+
+  el.innerHTML = `
+    <div class="card-strip"></div>
+     ${lastResetBadge}
+    <div class="card-body">
+      <div class="card-top">
+        <div class="device-icon ${networkType}">
+            ${deviceIcon}
+        </div>
+        <div class="card-top-right">
+          ${healthBadge}
+          ${versionBadge}
+          <div class="card-actions">
+            <button class="icon-btn edit"   title="Edit Device"   data-id="${d.id}">✏️</button>
+            <button class="icon-btn delete" title="Remove"        data-id="${d.id}">🗑️</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="device-id">${escHtml(d.device_id)}</div>
+      <span class="sync-status synced">✓ Synced</span>
+
+      <div class="fields-grid">
+        <div class="field-item">
+          <div class="field-key-label">Site</div>
+          <div class="field-val">${escHtml(d.site)}</div>
+        </div>
+        <div class="field-item">
+          <div class="field-key-label">Floor</div>
+          <div class="field-val accent">${escHtml(d.floor)}</div>
+        </div>
+        <div class="field-item" style="grid-column:1/-1">
+          <div class="field-key-label">Cabin</div>
+          <div class="field-val">${escHtml(d.cabin)}</div>
+        </div>
+      </div>
+
+      <button class="btn-view-users card-users-btn" data-id="${d.id}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M21 21v-2a4 4 0 0 0-3-3.87"/>
+        </svg>
+        View Users
+      </button>
+
+      <button class="btn-ota card-ota-btn" data-id="${d.id}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        OTA Firmware Update
+      </button>
+
+      <button class="btn-reset-card card-reset-btn" data-id="${d.id}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M23 4v6h-6"></path>
+          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+        </svg>
+        Reset Device
+      </button>
+      <button
+          class="btn-unlock-card card-unlock-btn ${
+              isDoorLocked
+                  ? 'door-locked'
+                  : isDoorUnlocked
+                      ? 'door-unlocked'
+                      : 'door-unknown'
+          }"
+          data-id="${d.id}"
+          data-device-id="${d.device_id}"
+          data-door-status="${doorStatus}"
+          ${isDoorUnknown ? 'disabled' : ''}
+      >
+          <svg viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               stroke-width="2.5">
+      
+              ${
+                  isDoorLocked
+                      ? `
+                          <rect x="5" y="10"
+                                width="14"
+                                height="11"
+                                rx="2"></rect>
+                          <path d="M8 10V7a4 4 0 0 1 8 0v3"></path>
+                          <circle cx="12"
+                                  cy="15.5"
+                                  r="1"></circle>
+                        `
+                      : isDoorUnlocked
+                          ? `
+                              <rect x="5" y="10"
+                                    width="14"
+                                    height="11"
+                                    rx="2"></rect>
+                              <path d="M8 10V7a4 4 0 0 1 8 0"></path>
+                              <path d="M16 10V7"></path>
+                              <circle cx="12"
+                                      cy="15.5"
+                                      r="1"></circle>
+                            `
+                          : `
+                              <circle cx="12"
+                                      cy="12"
+                                      r="9"></circle>
+                              <path d="M12 8v4"></path>
+                              <circle cx="12"
+                                      cy="16"
+                                      r="0.5"></circle>
+                            `
+              }
+      
+          </svg>
+      
+          ${
+              isDoorLocked
+                  ? 'Unlock Door'
+                  : isDoorUnlocked
+                      ? 'Lock Door'
+                      : 'Door Status Unknown'
+          }
+      </button>
+
+
+      <div class="card-footer">
+        <span>🕒 ${formatDate(d.created)}</span>
+        <span>🌐 API</span>
+      </div>
+    </div>
+  `;
+
+  el.querySelector('.edit').addEventListener('click', e => {
+    e.stopPropagation();
+    openEditModal(d);
+  });
+  el.querySelector('.card-ota-btn').addEventListener('click', e => {
+    e.stopPropagation();
+    handleOtaUpdate(d);
+  });
+  el.querySelector('.card-reset-btn').addEventListener('click', e => {
+    e.stopPropagation();
+    resetDevice(d);
+  });
+  el.querySelector('.card-unlock-btn').addEventListener('click', e => {
+    e.stopPropagation();
+
+    const button = e.currentTarget;
+
+    handleDoorToggle(button);
+  });
+  el.querySelector('.delete').addEventListener('click', e => {
+    e.stopPropagation();
+    openDeleteConfirm(d.id);
+  });
+  el.querySelector('.card-users-btn').addEventListener('click', e => {
+    e.stopPropagation();
+    openUsersPanel(d.device_id);
+  });
+
+  return el;
+}
+
+
+async function handleDoorToggle(button) {
+    const deviceId = button.dataset.deviceId;
+    const currentStatus = button.dataset.doorStatus;
+
+    const isLocked = currentStatus === 'LOCKED';
+
+    const command = isLocked
+        ? 'UNLOCK:UNLOCK'
+        : 'LOCK:LOCK';
+
+    const newStatus = isLocked
+        ? 'UNLOCKED'
+        : 'LOCKED';
+
+    const url =
+        `${BASE_URL}/send/${encodeURIComponent(deviceId)}?cmd=${encodeURIComponent(command)}`;
+
+    // Prevent double clicking
+    button.disabled = true;
+
+    const originalHTML = button.innerHTML;
+
+    button.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M12 2v4"></path>
+            <path d="M12 18v4"></path>
+            <path d="m4.93 4.93 2.83 2.83"></path>
+            <path d="m16.24 16.24 2.83 2.83"></path>
+            <path d="M2 12h4"></path>
+            <path d="M18 12h4"></path>
+        </svg>
+        Sending...
+    `;
+
+    try {
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        // Update local health map
+        if (!healthMap[deviceId]) {
+            healthMap[deviceId] = {};
+        }
+
+        healthMap[deviceId].door_status = newStatus;
+
+        // Update button state
+        button.dataset.doorStatus = newStatus;
+
+        button.classList.remove('door-locked', 'door-unlocked');
+
+        if (newStatus === 'LOCKED') {
+
+            button.classList.add('door-locked');
+
+            button.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <rect x="5" y="10" width="14" height="11" rx="2"></rect>
+                    <path d="M8 10V7a4 4 0 0 1 8 0v3"></path>
+                    <circle cx="12" cy="15.5" r="1"></circle>
+                </svg>
+                Unlock Door
+            `;
+
+        } else {
+
+            button.classList.add('door-unlocked');
+
+            button.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <rect x="5" y="10" width="14" height="11" rx="2"></rect>
+                    <path d="M8 10V7a4 4 0 0 1 8 0"></path>
+                    <path d="M16 10V7"></path>
+                    <circle cx="12" cy="15.5" r="1"></circle>
+                </svg>
+                Lock Door
+            `;
+        }
+
+        showToast(
+            newStatus === 'UNLOCKED'
+                ? '✓ Door unlocked successfully'
+                : '✓ Door locked successfully'
+        );
+
+    } catch (err) {
+
+        console.error('Door command failed:', err);
+
+        // Restore button
+        button.innerHTML = originalHTML;
+
+        showToast(
+            `❌ Failed to ${isLocked ? 'unlock' : 'lock'} door: ${err.message}`
+        );
+
+    } finally {
+        button.disabled = false;
+    }
+}
+
+
+
+
+
+
+
+
+
+function buildOverlayJson(d) {
+  return [
+    `<span class="oj-punct">{</span>`,
+    `  <span class="oj-key">"device_id"</span><span class="oj-punct">: </span><span class="oj-str">"${escHtml(d.device_id)}"</span><span class="oj-punct">,</span>`,
+    `  <span class="oj-key">"site"</span><span class="oj-punct">: </span><span class="oj-str">"${escHtml(d.site)}"</span><span class="oj-punct">,</span>`,
+    `  <span class="oj-key">"floor"</span><span class="oj-punct">: </span><span class="oj-str">"${escHtml(d.floor)}"</span><span class="oj-punct">,</span>`,
+    `  <span class="oj-key">"cabin"</span><span class="oj-punct">: </span><span class="oj-str">"${escHtml(d.cabin)}"</span>`,
+    d.inserted_id
+      ? `  <span class="oj-punct">// </span><span class="oj-id">_id: ${escHtml(d.inserted_id)}</span>`
+      : '',
+    `<span class="oj-punct">}</span>`,
+  ].filter(Boolean).join('\n');
+}
+
+// ─── Filters ────────────────────────────────────────────
+// function renderFilters() {
+//     const group = document.querySelector('.filter-group');
+
+//     group.innerHTML = `
+//         <select id="siteSelector" class="filter-btn">
+//             <option value="ntp">NTP</option>
+//             <option value="nom">NOM</option>
+//             <option value="now">NOW</option>
+//             <option value="nbp">NBP</option>
+//             <option value="noc">NOC</option>
+//             <option value="noq">NOQ</option>
+//             <option value="nob">NOB</option>
+//         </select>
+//     `;
+
+//     const siteSelector = document.getElementById('siteSelector');
+
+//     // Keep currently selected site
+//     siteSelector.value = activeFilter;
+
+//         siteSelector.addEventListener('change', async function () {
+    
+//         const selectedSite = this.value;
+    
+//         // Save selected site
+//         localStorage.setItem('selectedSite', selectedSite);
+    
+//         // Update active site
+//         activeFilter = selectedSite;
+    
+//         // Update BASE_URL
+//         BASE_URL = SITE_URLS[selectedSite];
+    
+//         console.log('Selected Site:', selectedSite);
+//         console.log('BASE_URL:', BASE_URL);
+    
+//         await fetchDevices();
+//     });
+// }
+
+
+
+//door lock and unlock
+
+// const health = healthMap[d.id] || {};
+// const doorStatus = String(health.door_status || 'LOCKED').toUpperCase();
+
+// const isLocked = doorStatus === 'LOCKED';
+
+// const doorButton = `
+//   <button
+//     class="card-unlock-btn ${isLocked ? 'door-locked' : 'door-unlocked'}"
+//     data-id="${d.id}"
+//     data-door-status="${isLocked ? 'LOCKED' : 'UNLOCKED'}"
+//   >
+//     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+//       ${
+//         isLocked
+//           ? `
+//             <rect x="5" y="10" width="14" height="11" rx="2"></rect>
+//             <path d="M8 10V7a4 4 0 0 1 8 0v3"></path>
+//             <circle cx="12" cy="15.5" r="1"></circle>
+//           `
+//           : `
+//             <rect x="5" y="10" width="14" height="11" rx="2"></rect>
+//             <path d="M8 10V7a4 4 0 0 1 8 0"></path>
+//             <path d="M16 10V7"></path>
+//             <circle cx="12" cy="15.5" r="1"></circle>
+//           `
+//       }
+//     </svg>
+
+//     ${isLocked ? 'Unlock Door' : 'Lock Door'}
+//   </button>
+// `;
+
+
+
+
+
+
+
+
+
+
+
+
+// ══════════════════════════════════════════════════════
+//  POST (Add Device)
+// ══════════════════════════════════════════════════════
+
+async function handleSave() {
+  const device_id = fDeviceId.value;
+  const site = fSite.value;
+  const floor = fFloor.value;
+  const cabin = fCabin.value.trim();
+
+  if (!site) { highlight(fSite); showToast('⚠️ Please select a Site'); return; }
+  if (!floor) { highlight(fFloor); showToast('⚠️ Please select a Floor'); return; }
+  if (!cabin) { highlight(fCabin); showToast('⚠️ Cabin is required'); return; }
+
+  // ── Editing existing device (PUT) ──────────────────────
+  if (editingId) {
+    const editDevice = devices.find(d => d.id === editingId);
+    if (!editDevice) return;
+    saveCardBtn.disabled = true;
+    saveBtnText.textContent = 'Updating…';
+    try {
+      const res = await fetch(
+        `${BASE_URL}/update-esp32/${encodeURIComponent(editDevice.device_id)}`,
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device_id: editDevice.device_id, site, floor, cabin }) }
+      );
+      const data = await res.json();
+      if (res.ok) {
+        showToast(`✅ ${data.message || 'Device updated!'}`);
+        hideModal(modalBackdrop);
+        editingId = null;
+        clearForm();
+        await fetchDevices();
+      } else {
+        const errMsg = Array.isArray(data.detail)
+          ? data.detail.map(e => e.msg).join(', ')
+          : (data.detail || data.message || res.status);
+        showToast(`❌ Update failed: ${errMsg}`);
+      }
+    } catch (err) {
+      showToast(`❌ Network error: ${err.message}`);
+    } finally {
+      saveCardBtn.disabled = false;
+      saveBtnText.textContent = 'Save Device';
+    }
+    return;
+  }
+
+  // ── Adding new device (POST) ───────────────────────────
+  if (!device_id) { highlight(fDeviceId); showToast('⚠️ Please select a Device ID'); return; }
+
+  // ── Uniqueness check ───────────────────────────────────
+  const duplicate = devices.find(d => d.device_id === device_id);
+  if (duplicate) {
+    highlight(fDeviceId);
+    showToast(`❌ "${device_id}" is already registered. Each Device ID must be unique.`);
+    return;
+  }
+
+  saveCardBtn.disabled = true;
+  saveBtnText.textContent = 'Sending…';
+  setApiStatus('loading', '⏳ Sending…');
+
+  try {
+    const res = await fetch(postURL(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device_id, site, floor, cabin }),
+    });
+    const data = await res.json();
+
+    if (res.ok) {
+      const iid = data.inserted_id || data._id || '';
+      showToast(`🎉 Device registered! ${iid ? '· _id: ' + iid.slice(-8) : ''}`);
+      setApiStatus('ok', '✓ Live Data');
+
+      // Show server response
+      respTitle.textContent = '✅ API Response';
+      respBadge.textContent = `${res.status} OK`;
+      respBadge.className = 'resp-badge';
+      respBody.textContent = JSON.stringify(data, null, 2);
+
+      hideModal(modalBackdrop);
+      clearForm();
+
+      // Re-fetch to show the newly added device
+      await fetchDevices();
+
+      setTimeout(() => showModal(responseBackdrop), 300);
+    } else {
+      setApiStatus('error', `✗ ${res.status}`);
+      showToast(`⚠️ API error ${res.status}: ${data.message || 'Unknown error'}`);
+
+      respTitle.textContent = '❌ API Response';
+      respBadge.textContent = `${res.status} Error`;
+      respBadge.className = 'resp-badge error';
+      respBody.textContent = JSON.stringify(data, null, 2);
+      hideModal(modalBackdrop);
+      showModal(responseBackdrop);
+    }
+  } catch (err) {
+    setApiStatus('error', '✗ Network Error');
+    showToast(`❌ Network error: ${err.message}`);
+  } finally {
+    saveCardBtn.disabled = false;
+    saveBtnText.textContent = 'Save Device';
+  }
+}
+
+// ─── Reset Device ────────────────────────────────────────
+async function resetDevice(d) {
+  // Server strips { } before relaying to device, so device expects "RESET:RESET" not "{RESET:RESET}"
+  // Sending without braces avoids the browser URL-encoding issue entirely
+  const url = `${BASE_URL}/send/${encodeURIComponent(d.device_id)}?cmd=RESET:RESET`;
+  showToast(`🔄 Sending reset to ${d.device_id}…`);
+  try {
+    const res = await fetch(url, { method: 'GET', credentials: 'omit' });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      showToast(`✅ Reset sent to ${d.device_id} — ${data.status || ''}`);
+    } else {
+      showToast(`❌ Reset failed (${res.status}): ${data.message || ''}`);
+    }
+  } catch (err) {
+    showToast(`❌ Network error: ${err.message}`);
+  }
+}
+
+// ─── OTA Update ──────────────────────────────────────────
+async function handleOtaUpdate(d) {
+  const url = `${BASE_URL}/send/${encodeURIComponent(d.device_id)}?cmd=OTA`;
+  showToast(`🚀 Initializing OTA for ${d.device_id}…`);
+  try {
+    const res = await fetch(url, { method: 'GET', credentials: 'omit' });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      showToast(`✅ OTA command sent! ${data.status || ''}`);
+    } else {
+      showToast(`❌ OTA failed (${res.status}): ${data.message || ''}`);
+    }
+  } catch (err) {
+    showToast(`❌ Network error: ${err.message}`);
+  }
+}
+
+// ─── Delete ──────────────────────────────────────────────
+function openDeleteConfirm(id) {
+  deleteTarget = id;
+  showModal(deleteBackdrop);
+}
+async function handleDelete() {
+  if (!deleteTarget) return;
+
+  const device = devices.find(d => d.id === deleteTarget);
+  deleteTarget = null;
+  hideModal(deleteBackdrop);
+
+  if (!device) return;
+
+  const url = `${BASE_URL}/delete-esp32/${encodeURIComponent(device.device_id)}`;
+
+  try {
+    const res = await fetch(url, { method: 'GET' });
+    const data = await res.json().catch(() => ({}));
+
+    if (res.ok) {
+      showToast(`🗑️ ${data.message || device.device_id + ' deleted'}`);
+      await fetchDevices();          // refresh cards from API
+    } else {
+      showToast(`❌ Delete failed: ${data.message || res.status}`);
+    }
+  } catch (err) {
+    showToast(`❌ Network error: ${err.message}`);
+  }
+}
+
+// ─── Add Modal ──────────────────────────────────────────
+// ── View Users Panel ────────────────────────────────────
+async function openUsersPanel(device_id) {
+  usersTitle.textContent = `Users — ${device_id}`;
+  usersCountBadge.textContent = 'Loading…';
+  usersSearchInput.value = ''; // Clear search on open
+  currentUsers = [];
+  usersList.innerHTML = `
+    <div class="users-loading">
+      <div class="users-loading-spinner"></div>
+      Fetching registered users…
+    </div>`;
+  showModal(usersBackdrop);
+
+  try {
+    const res = await fetch(
+      `${BASE_URL}/get-user/${encodeURIComponent(device_id)}`,
+      { credentials: 'omit' }
+    );
+    const data = await res.json();
+    currentUsers = data.data || [];
+    renderUsersTable(currentUsers, device_id);
+  } catch (err) {
+    usersCountBadge.textContent = 'Error';
+    usersList.innerHTML = `<div class="users-empty">❌ Network error: ${escHtml(err.message)}</div>`;
+  }
+}
+
+function renderUsersTable(users, device_id) {
+    usersCountBadge.textContent =
+        `${users.length} User${users.length !== 1 ? 's' : ''}`;
+
+    if (users.length === 0) {
+        if (usersSearchInput.value.trim()) {
+            usersList.innerHTML = `
+                <div class="users-empty">
+                    <div class="users-empty-icon">🔍</div>
+                    No matching users found for "${escHtml(usersSearchInput.value)}"
+                </div>`;
+        } else {
+            usersList.innerHTML = `
+                <div class="users-empty">
+                    <div class="users-empty-icon">👤</div>
+                    No users registered for <strong>${escHtml(device_id)}</strong>
+                </div>`;
+        }
+        return;
+    }
+
+    usersList.innerHTML = `
+        <table class="users-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Gmail</th>
+                    <th>Employee ID</th>
+                    <th>RFID</th>
+                    <th>Novel Emp</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                ${users.map((u, i) => `
+                    <tr style="animation-delay:${i * 40}ms">
+
+                        <td class="ut-num">
+                            ${i + 1}
+                        </td>
+
+                        <td class="ut-gmail">
+                            ${escHtml(u.gmail || '—')}
+                        </td>
+
+                        <td class="ut-employee-id">
+                            ${escHtml(String(u.Employee_id || '—'))}
+                        </td>
+
+                        <td class="ut-rfid">
+                            ${escHtml(u.RFID || 'N/A')}
+                        </td>
+
+                        <td class="ut-novel-emp">
+                            <span class="novel-emp-badge ${Number(u.novel_emp) === 1 ? 'yes' : 'no'}">
+                                ${Number(u.novel_emp) === 1 ? 'Yes' : 'No'}
+                            </span>
+                        </td>
+
+                        <td>
+                            <button
+                                class="btn-user-delete"
+                                onclick="handleDeleteUser(
+                                    '${escHtml(device_id)}',
+                                    '${escHtml(u.gmail)}',
+                                    '${escHtml(u.RFID)}'
+                                )"
+                                title="Delete User">
+
+                                <svg
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2.5">
+
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+
+                                </svg>
+                            </button>
+                        </td>
+
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+async function handleDeleteUser(device_id, gmail, rfid) {
+  if (!confirm(`Are you sure you want to delete user "${gmail}"?`)) return;
+
+  try {
+    const url1 = `${BASE_URL}/send/${encodeURIComponent(device_id)}?cmd=gmail:${gmail}`;
+    const url2 = `${BASE_URL}/send/${encodeURIComponent(device_id)}?cmd=RM:${rfid}`;
+
+    showToast(`⏳ Sending delete command (1/2)…`);
+    const res1 = await fetch(url1, { method: 'GET', credentials: 'omit' });
+
+    if (res1.ok) {
+      showToast(`⏳ Sending delete command (2/2)…`);
+      const res2 = await fetch(url2, { method: 'GET', credentials: 'omit' });
+
+      if (res2.ok) {
+        showToast(`🎉 User ${gmail} deleted successfully!`);
+        // Refresh with a slightly longer delay to ensure server sync
+        setTimeout(() => openUsersPanel(device_id), 1200);
+      } else {
+        showToast(`❌ Delete failed (RFID): ${res2.status}`);
+      }
+    } else {
+      showToast(`❌ Delete failed (Gmail): ${res1.status}`);
+    }
+  } catch (err) {
+    showToast(`❌ Network error: ${err.message}`);
+  }
+}
+
+async function handleDeleteAllUsers() {
+  const device_id = usersTitle.textContent.split(' — ')[1];
+  if (!device_id) return;
+
+  if (!confirm(`Are you sure you want to delete ALL users from ${device_id}? This action cannot be undone.`)) return;
+
+  const url = `${BASE_URL}/send/${encodeURIComponent(device_id)}?cmd=BULK_DELETE_ALL`;
+
+  showToast(`⏳ Sending bulk delete command…`);
+  deleteAllUsersBtn.disabled = true;
+  deleteAllUsersBtn.style.opacity = '0.6';
+
+  try {
+    const res = await fetch(url, { method: 'GET', credentials: 'omit' });
+
+    if (res.ok) {
+      showToast(`🎉 All users deleted successfully!`);
+      setTimeout(() => openUsersPanel(device_id), 1200);
+    } else {
+      showToast(`❌ Bulk delete failed: ${res.status}`);
+    }
+  } catch (err) {
+    showToast(`❌ Network error: ${err.message}`);
+  } finally {
+    deleteAllUsersBtn.disabled = false;
+    deleteAllUsersBtn.style.opacity = '1';
+  }
+}
+
+function handleUsersSearch() {
+  const query = usersSearchInput.value.toLowerCase().trim();
+  const device_id = usersTitle.textContent.split(' — ')[1];
+
+  if (!query) {
+    renderUsersTable(currentUsers, device_id);
+    return;
+  }
+
+  const filtered = currentUsers.filter(u =>
+    (u.gmail || '').toLowerCase().includes(query) ||
+    (u.RFID || '').toLowerCase().includes(query)
+  );
+  renderUsersTable(filtered, device_id);
+}
+
+// ─── Add Employee ───────────────────────────────────────
+function openAddEmployeeModal() {
+  employeeId.value = '';
+  eGmail.value = '';
+  eRFID.value = '';
+  document.getElementById('novelEmp').checked = false;
+  showModal(employeeBackdrop);
+}
+
+async function handleSaveEmployee() {
+  const gmail = eGmail.value.trim();
+  const employee_id = employeeId.value.trim();
+  const rfid = eRFID.value.trim();
+
+  const novel_emp = document.getElementById('novelEmp').checked ? 1 : 0;
+
+  const device_id = usersTitle.textContent.split(' — ')[1];
+
+  // Gmail is mandatory
+  if (!gmail) {
+    highlight(eGmail);
+    showToast('⚠️ Gmail is required');
+    return;
+  }
+
+  // RFID is mandatory
+  if (!rfid) {
+    highlight(eRFID);
+    showToast('⚠️ RFID is required');
+    return;
+  }
+
+  saveEmployeeBtn.disabled = true;
+  saveEmployeeBtnText.textContent = 'Adding…';
+
+  try {
+    // 1. Send Gmail
+    const url1 =
+      `${BASE_URL}/send/${encodeURIComponent(device_id)}` +
+      `?cmd=${encodeURIComponent(`gmail:${gmail}`)}`;
+
+    // 2. Send Employee ID only if entered
+    const url2 = employee_id
+      ? `${BASE_URL}/send/${encodeURIComponent(device_id)}` +
+        `?cmd=${encodeURIComponent(`employee_id:${employee_id}`)}`
+      : null;
+
+    // 3. Send RFID
+    const url3 =
+      `${BASE_URL}/send/${encodeURIComponent(device_id)}` +
+      `?cmd=${encodeURIComponent(`ADD:${rfid}`)}`;
+    const url4 =
+        `${BASE_URL}/send/${encodeURIComponent(device_id)}` +
+        `?cmd=${encodeURIComponent(`novel_emp:${novel_emp}`)}`;
+
+    // Send Gmail
+    showToast('⏳ Sending Gmail update…');
+
+    console.log("Employee ID:", employee_id);
+    console.log("Employee ID URL:", url2);
+
+    const res1 = await fetch(url1, {
+      method: 'GET',
+      credentials: 'omit'
+    });
+
+    if (!res1.ok) {
+      showToast(`❌ Gmail update failed: ${res1.status}`);
+      return;
+    }
+
+    // Send Employee ID only if provided
+    if (employee_id) {
+      showToast('⏳ Sending Employee ID…');
+
+      const res2 = await fetch(url2, {
+        method: 'GET',
+        credentials: 'omit'
+      });
+
+      if (!res2.ok) {
+        showToast(`❌ Employee ID update failed: ${res2.status}`);
+        return;
+      }
+    }
+    showToast('⏳ Sending Novel Employee status…');
+
+     console.log("Novel Employee:", novel_emp);
+     console.log("Novel Employee URL:", url4);
+     
+     const res4 = await fetch(url4, {
+       method: 'GET',
+       credentials: 'omit'
+     });
+     
+     if (!res4.ok) {
+       showToast(`❌ Novel Employee update failed: ${res4.status}`);
+       return;
+     }
+
+    // Send RFID / ADD command
+    showToast('⏳ Sending RFID update…');
+
+    const res3 = await fetch(url3, {
+      method: 'GET',
+      credentials: 'omit'
+    });
+
+    // ==========================================
+    // RFID ALREADY EXISTS
+    // ==========================================
+    if (res3.status === 409) {
+      showToast(`⚠️ RFID ${rfid} is already present for this device`);
+
+      // Keep modal open so user can enter another RFID
+      return;
+    }
+
+    // ==========================================
+    // RFID ADDED SUCCESSFULLY
+    // ==========================================
+    if (res3.ok) {
+      showToast(`🎉 User ${gmail} added successfully!`);
+
+      hideModal(employeeBackdrop);
+
+      // Refresh user list after server sync
+      setTimeout(() => {
+        openUsersPanel(device_id);
+      }, 1200);
+
+    } else {
+      showToast(`❌ RFID update failed: ${res3.status}`);
+    }
+
+  } catch (err) {
+    showToast(`❌ Network error: ${err.message}`);
+
+  } finally {
+    saveEmployeeBtn.disabled = false;
+    saveEmployeeBtnText.textContent = 'Add Employee';
+  }
+    }
+
+// ─── Bulk Upload ─────────────────────────────────────────
+function openBulkUploadModal() {
+  bFileInput.value = '';
+  bUploadStatus.textContent = '';
+  bCommand.value = 'bulk_add';
+  showModal(bulkUploadBackdrop);
+}
+
+async function handleBulkUpload() {
+  const file = bFileInput.files[0];
+  const device_id = usersTitle.textContent.split(' — ')[1];
+  const command = bCommand.value;
+
+  if (!file) {
+    showToast("⚠️ Select an Excel file first");
+    return;
+  }
+  if (!device_id) {
+    showToast("⚠️ Device ID missing");
+    return;
+  }
+
+  let formData = new FormData();
+  formData.append("file", file);
+  formData.append("command", command);
+
+  bUploadStatus.style.color = "var(--text-secondary)";
+  bUploadStatus.innerText = "Uploading...";
+  saveBulkUploadBtn.disabled = true;
+  saveBulkUploadBtnText.textContent = "Uploading...";
+
+  try {
+    let response = await fetch(
+      `${BASE_URL}/upload_excel/${encodeURIComponent(device_id)}`,
+      {
+        method: "POST",
+        body: formData
+      }
+    );
+    let data = await response.json();
+
+    if (response.ok) {
+      bUploadStatus.style.color = "var(--accent-green)";
+      bUploadStatus.innerText = `Done! RFIDs: ${data.total_rfids || 0}, Chunks: ${data.chunks || 0}`;
+      showToast(`🎉 Bulk upload successful!`);
+      setTimeout(() => {
+        hideModal(bulkUploadBackdrop);
+        openUsersPanel(device_id);
+      }, 1500);
+    } else {
+      const errMsg = data.message || data.detail || response.status;
+      bUploadStatus.style.color = "var(--accent-red)";
+      bUploadStatus.innerText = `Failed: ${errMsg}`;
+      showToast(`❌ Upload failed: ${response.status}`);
+    }
+  } catch (err) {
+    bUploadStatus.style.color = "var(--accent-red)";
+    bUploadStatus.innerText = "Upload failed: Network Error";
+    showToast(`❌ Network error: ${err.message}`);
+  } finally {
+    saveBulkUploadBtn.disabled = false;
+    saveBulkUploadBtnText.textContent = 'Upload';
+  }
+}
+
+function openAddModal() {
+  editingId = null;
+  modalTitle.textContent = 'Register New Device';
+  saveBtnText.textContent = 'Save Device';
+  fDeviceId.disabled = false;
+  clearForm();
+  showModal(modalBackdrop);
+  fDeviceId.focus();
+}
+
+function openEditModal(d) {
+  editingId = d.id;
+  modalTitle.textContent = `Edit Device — ${d.device_id}`;
+  saveBtnText.textContent = 'Update Device';
+  // Lock device_id (can't change the key)
+  fDeviceId.value = d.device_id;
+  fDeviceId.disabled = true;
+  fSite.value = d.site;
+  fFloor.value = d.floor;
+  fCabin.value = d.cabin;
+  showModal(modalBackdrop);
+  fSite.focus();
+}
+function showModal(bd) { bd.classList.add('open'); }
+function hideModal(bd) { bd.classList.remove('open'); }
+function clearForm() {
+  fDeviceId.value = '';
+  fSite.value = '';
+  fFloor.value = '';
+  fCabin.value = '';
+}
+
+// ─── API Status Pill ────────────────────────────────────
+function setApiStatus(type, text) {
+  apiStatusText.textContent = text;
+  const dot = apiStatus.querySelector('.status-dot');
+  if (type === 'ok') {
+    apiStatus.className = 'status-pill';
+    dot.style.background = 'var(--accent-green)';
+    dot.style.animation = '';
+  } else if (type === 'error') {
+    apiStatus.className = 'status-pill error';
+    dot.style.background = 'var(--accent-red)';
+    dot.style.animation = 'none';
+  } else {
+    apiStatus.className = 'status-pill';
+    dot.style.background = 'var(--accent-amber)';
+    dot.style.animation = 'none';
+  }
+}
+
+// ─── Helpers ─────────────────────────────────────────────
+function escHtml(str) {
+  return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function formatDate(ts) {
+  return new Date(ts).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+function showToast(msg) {
+  toast.textContent = msg;
+  toast.classList.add('show');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => toast.classList.remove('show'), 3200);
+}
+function highlight(el) {
+  el.style.borderColor = 'var(--accent-red)';
+  el.style.boxShadow = '0 0 0 3px rgba(239,68,68,0.2)';
+  el.focus();
+  setTimeout(() => { el.style.borderColor = ''; el.style.boxShadow = ''; }, 2200);
+}
+
+// ─── Event Listeners ─────────────────────────────────────
+openModalBtn.addEventListener('click', openAddModal);
+closeModalBtn.addEventListener('click', () => hideModal(modalBackdrop));
+cancelBtn.addEventListener('click', () => hideModal(modalBackdrop));
+saveCardBtn.addEventListener('click', handleSave);
+
+cancelDeleteBtn.addEventListener('click', () => hideModal(deleteBackdrop));
+cancelDeleteBtn2.addEventListener('click', () => hideModal(deleteBackdrop));
+confirmDeleteBtn.addEventListener('click', handleDelete);
+
+closeRespBtn.addEventListener('click', () => hideModal(responseBackdrop));
+closeRespBtn2.addEventListener('click', () => hideModal(responseBackdrop));
+
+modalBackdrop.addEventListener('click', e => { if (e.target === modalBackdrop) hideModal(modalBackdrop); });
+deleteBackdrop.addEventListener('click', e => { if (e.target === deleteBackdrop) hideModal(deleteBackdrop); });
+responseBackdrop.addEventListener('click', e => { if (e.target === responseBackdrop) hideModal(responseBackdrop); });
+usersBackdrop.addEventListener('click', e => { if (e.target === usersBackdrop) hideModal(usersBackdrop); });
+employeeBackdrop.addEventListener('click', e => { if (e.target === employeeBackdrop) hideModal(employeeBackdrop); });
+
+closeUsersBtn.addEventListener('click', () => hideModal(usersBackdrop));
+usersSearchInput.addEventListener('input', handleUsersSearch);
+
+openAddEmployeeModalBtn.addEventListener('click', openAddEmployeeModal);
+closeEmployeeModalBtn.addEventListener('click', () => hideModal(employeeBackdrop));
+cancelEmployeeBtn.addEventListener('click', () => hideModal(employeeBackdrop));
+saveEmployeeBtn.addEventListener('click', handleSaveEmployee);
+
+openBulkUploadModalBtn.addEventListener('click', openBulkUploadModal);
+deleteAllUsersBtn.addEventListener('click', handleDeleteAllUsers);
+closeBulkUploadModalBtn.addEventListener('click', () => hideModal(bulkUploadBackdrop));
+cancelBulkUploadBtn.addEventListener('click', () => hideModal(bulkUploadBackdrop));
+saveBulkUploadBtn.addEventListener('click', handleBulkUpload);
+bulkUploadBackdrop.addEventListener('click', e => { if (e.target === bulkUploadBackdrop) hideModal(bulkUploadBackdrop); });
+
+searchInput.addEventListener('input', renderCards);
+
+refreshBtn.addEventListener('click', () => {
+//   let activeFilter = localStorage.getItem('selectedSite') || 'ntp';
+  fetchDevices();
+  showToast('🔄 Refreshing from API…');
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    hideModal(modalBackdrop);
+    hideModal(deleteBackdrop);
+    hideModal(responseBackdrop);
+    hideModal(usersBackdrop);
+    hideModal(employeeBackdrop);
+    hideModal(bulkUploadBackdrop);
+  }
+});
+
+// ══════════════════════════════════════════════════════
+//  SKELETON CSS (injected at runtime)
+// ══════════════════════════════════════════════════════
+const skeletonStyles = document.createElement('style');
+skeletonStyles.textContent = `
+.skeleton-card {
+  background: #131922;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 20px;
+  overflow: hidden;
+  animation: cardIn 0.4s ease both;
+}
+.sk-strip { height: 4px; background: linear-gradient(90deg,#1e3a7a,#2563eb,#7c3aed); }
+.sk-body  { padding: 22px; }
+.sk-row   { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+.sk-box   {
+  background: linear-gradient(90deg, #1c2540 25%, #253060 50%, #1c2540 75%);
+  background-size: 200% 100%;
+  border-radius: 8px;
+  animation: shimmer 1.4s infinite;
+}
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.sk-icon       { width:46px; height:46px; border-radius:12px; flex-shrink:0; }
+.sk-title      { height:18px; flex:1; border-radius:6px; }
+.sk-badge      { height:14px; width:120px; border-radius:999px; margin-bottom:16px; }
+.sk-grid       { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px; }
+.sk-field      { height:52px; border-radius:8px; }
+.sk-field-wide { height:52px; border-radius:8px; grid-column:1/-1; }
+.sk-id-bar     { height:32px; border-radius:8px; }
+`;
+document.head.appendChild(skeletonStyles);
+
+// ─── Init ────────────────────────────────────────────────
+fetchDevices();
+
+    </script>
+</body>
+
+</html>
