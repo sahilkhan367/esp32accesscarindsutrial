@@ -36,7 +36,7 @@
 
 const char *DEVICE_ID = "esp32_020";
 
-const char *VERSION = "1.8V";
+const char *VERSION = "1.9V";
 
 /* ===================== GPIO & UART DEFINES ===================== */
 
