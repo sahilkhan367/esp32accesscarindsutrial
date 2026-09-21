@@ -34,7 +34,7 @@
 #include "wifi_manager.h"
 
 
-const char *DEVICE_ID = "esp32_020";
+const char *DEVICE_ID = "esp32_010";
 
 const char *VERSION = "1.9V";
 

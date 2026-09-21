@@ -20,6 +20,7 @@ import sys
 from apscheduler.schedulers.background import BackgroundScheduler
 import requests
 import atexit
+from fastapi.responses import JSONResponse
 from bson import ObjectId
 
 
@@ -133,11 +134,15 @@ def on_message(client, userdata, msg):
                 },
                 {
                     "_id": 0,
-                    "gmail": 1
+                    "gmail": 1,
+                    "Employee_id": 1,
+                    "novel_emp": 1
                 }
             )
     
             gmail = user["gmail"] if user else None
+            employee_id = user.get("Employee_id") if user else None
+            novel_emp = user.get("novel_emp", 0) if user else 0
     
             event_time = datetime.fromtimestamp(
                 data["timestamp"]
@@ -148,6 +153,8 @@ def on_message(client, userdata, msg):
                 "RFID": RFID,
                 "direction": direction,
                 "gmail": gmail,
+                "Employee_id": employee_id,
+                "novel_emp": novel_emp,
                 "date": event_time.strftime("%d-%m-%Y"),
                 "time": event_time.strftime("%H:%M:%S"),
                 "offline_log": True
@@ -205,29 +212,48 @@ def on_message(client, userdata, msg):
     if topic.startswith("esp32/ack/"):
         device_id = topic.split("/")[-1]
         acks[device_id] = payload
+    
         print(f"ACK from {device_id}: {payload}")
         print("this is payload =====", payload)
-        data=json.loads(payload)
+    
+        data = json.loads(payload)
+    
         if "ADD" in data:
-            print("ADD the crad")
+            print("ADD the card")
             print("ADD", data["ADD"])
-            ADD=data["ADD"].split(":", 1)[1]
-            print("gmail:", data["gmail"])
-            print("Device_id", data["device_id"])
+        
+            ADD = data["ADD"].split(":", 1)[1]
+        
+            print("gmail:", data.get("gmail"))
+            print("Device_id:", data.get("device_id"))
+            print("Employee_ID:", data.get("Employee_id"))
+        
             document = {
                 "device_id": data.get("device_id"),
                 "RFID": ADD,
                 "gmail": data.get("gmail"),
+                "Employee_id": data.get("Employee_id", ""),
+                "novel_emp": data.get("novel_emp", 0)
             }
-            esp32_user.update_one(
-            {
+        
+            # Check whether RFID already exists for this device
+            existing_user = esp32_user.find_one({
                 "device_id": document["device_id"],
-                "gmail": document["gmail"],
                 "RFID": document["RFID"]
-            },
-            {"$setOnInsert": document},
-            upsert=True
-            )
+            })
+        
+            if existing_user:
+                print(
+                    f"❌ RFID {ADD} already exists "
+                    f"for device {document['device_id']}"
+                )
+            else:
+                esp32_user.insert_one(document)
+        
+                print(
+                    f"✅ RFID {ADD} added successfully "
+                    f"for device {document['device_id']}"
+                )
             
         elif "RM" in data:
             print("REMOVE the crad")
@@ -285,9 +311,12 @@ def on_message(client, userdata, msg):
             "device_id": device_id,
             "RFID": RFID
         },
-            {"_id": 0, "gmail": 1}
+            {"_id": 0, "gmail": 1, "Employee_id": 1, "novel_emp": 1}
         )
-        gmail = user["gmail"] if user else None
+        # gmail = user["gmail"] if user else None
+        gmail = user.get("gmail") if user else None
+        employee_id = user.get("Employee_id") if user else None
+        novel_emp = user.get("novel_emp") if user else None                 #added new line for novel emp
         now = datetime.now()
         log_document = {
             "device_id": device_id,
@@ -295,11 +324,15 @@ def on_message(client, userdata, msg):
             "RFID": RFID,
             "direction": direction,
             "gmail": gmail,
+            "Employee_id": employee_id,
+            "novel_emp": novel_emp,
             "date": now.strftime("%d-%m-%Y"),
             "time": now.strftime("%H:%M:%S")
         }  
         esp32_logs.insert_one(log_document)
         print("RFID log saved")
+        print("Employee ID:", employee_id)
+        print("Novel Employee:", novel_emp)
 
         
 
@@ -435,15 +468,53 @@ def send_command(device_id: str, request: CommandRequest):
 
 @app.get("/send/{device_id}")
 def send_command(device_id: str, cmd: str):
+
+    print("hello hello testing....")
+    print("Device ID:", device_id)
+    print("Command:", cmd)
+
+    # ==========================================
+    # CHECK DUPLICATE RFID FOR ADD COMMAND
+    # ==========================================
+    if cmd.startswith("ADD:"):
+
+        RFID = cmd.split(":", 1)[1].strip()
+
+        print("Checking RFID:", RFID)
+
+        existing_user = esp32_user.find_one({
+            "device_id": device_id,
+            "RFID": RFID
+        })
+
+        if existing_user:
+            print(
+                f"❌ RFID {RFID} already exists "
+                f"for device {device_id}"
+            )
+
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "device": device_id,
+                    "RFID": RFID,
+                    "status": "error",
+                    "message": "RFID already exists for this device"
+                }
+            )
+
+    # ==========================================
+    # SEND COMMAND TO ESP32
+    # ==========================================
     topic = f"esp32/cmd/{device_id}"
-    #print("hello hello testing....")
 
     mqtt_client.publish(
         topic,
         cmd,
-        qos=1,
-        #retain=False  #removed becouse of ACK
+        qos=1
     )
+
+    print("✅ Command sent to ESP32")
 
     return {
         "device": device_id,
@@ -490,7 +561,7 @@ def root():
 ##curl -X POST "http://127.0.0.1:8000/send/esp32_001?cmd={gmail:sahil.k@noveloffice.in, RM:13072052}"       #CMD for Removing cards
 ##curl -X POST "http://127.0.0.1:8000/send/esp32_001?cmd={DISPLAY:DATA}"                                    #CMD for Display Data
 ##curl -X GET "http://127.0.0.1:8000/send/esp32_001?cmd={RESET:RESET}"                                     #CMD for Reset
-
+#https://ntpaccesshub.novelinfra.com/send/esp32_020?cmd=LOCK:LOCK
 
 
 
@@ -766,11 +837,15 @@ def get_all_esp32():
 
 
 
+
 @app.get("/health-esp32")
 def get_latest_health_per_device():
     try:
-        pipeline = [
-            {"$sort": {"_id": -1}},  # newest first
+        # --------------------------------------------------
+        # 1. Get latest health log for each device
+        # --------------------------------------------------
+        health_pipeline = [
+            {"$sort": {"_id": -1}},
             {
                 "$group": {
                     "_id": "$device_id",
@@ -779,22 +854,140 @@ def get_latest_health_per_device():
             }
         ]
 
-        results = list(db["esp32_health"].aggregate(pipeline))
+        health_results = list(
+            db["esp32_health"].aggregate(health_pipeline)
+        )
 
+        # --------------------------------------------------
+        # 2. Get latest reset log for each device
+        # --------------------------------------------------
+        reset_pipeline = [
+            {"$sort": {"_id": -1}},
+            {
+                "$group": {
+                    "_id": "$device_id",
+                    "latest_log": {"$first": "$$ROOT"}
+                }
+            }
+        ]
+
+        reset_results = list(
+            db["esp32_reset_logs"].aggregate(reset_pipeline)
+        )
+
+        # Create dictionary:
+        # {
+        #     "esp32_020": {...},
+        #     "esp32_003": {...}
+        # }
+        reset_data = {}
+
+        for item in reset_results:
+            log = item["latest_log"]
+
+            reset_data[log["device_id"]] = {
+                "last_reset": log.get("last_reset", "unknown"),
+                "Last_reset_time": log.get("time", "unknown"),
+                "Last_reset_data": log.get("date", "unknown")
+            }
+
+        # --------------------------------------------------
+        # 3. Get latest door log for each device
+        # --------------------------------------------------
+        door_pipeline = [
+            {"$sort": {"_id": -1}},
+            {
+                "$group": {
+                    "_id": "$device_id",
+                    "latest_log": {"$first": "$$ROOT"}
+                }
+            }
+        ]
+
+        door_results = list(
+            db["esp32_door_logs"].aggregate(door_pipeline)
+        )
+
+        # Create dictionary:
+        # {
+        #     "esp32_020": {...},
+        #     "esp32_003": {...}
+        # }
+        door_data = {}
+
+        for item in door_results:
+            log = item["latest_log"]
+
+            door_data[log["device_id"]] = {
+                "door_status": log.get("door_status", "unknown")
+            }
+
+        # --------------------------------------------------
+        # 4. Combine everything using device_id
+        # --------------------------------------------------
         response = []
 
-        for item in results:
+        for item in health_results:
+
             log = item["latest_log"]
+
+            device_id = log["device_id"]
+
+            # Convert ObjectId to string
             log["_id"] = str(log["_id"])
+
+            # Add latest door status
+            door_info = door_data.get(device_id, {})
+
+            log["door_status"] = door_info.get(
+                "door_status",
+                "unknown"
+            )
+
+            # Add latest reset information
+            reset_info = reset_data.get(device_id, {})
+
+            log["last_reset"] = reset_info.get(
+                "last_reset",
+                "unknown"
+            )
+
+            log["Last_reset_time"] = reset_info.get(
+                "Last_reset_time",
+                "unknown"
+            )
+
+            log["Last_reset_data"] = reset_info.get(
+                "Last_reset_data",
+                "unknown"
+            )
+
             response.append(log)
 
+        # --------------------------------------------------
+        # 5. Final response
+        # --------------------------------------------------
         return {
             "count": len(response),
             "data": response
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -869,27 +1062,83 @@ async def upload_excel(device_id: str, file: UploadFile = File(...)):
     # ✅ Read Excel
     df = pd.read_excel(file.file)
 
-    # ✅ Normalize column names (VERY IMPORTANT)
+    # ✅ Normalize column names
     df.columns = df.columns.str.strip().str.lower()
 
     print("📊 Columns detected:", df.columns.tolist())
 
-    # ✅ Check columns flexibly
+    # ✅ Check required columns
     if "rfid" not in df.columns or "gmail" not in df.columns:
         return {
             "error": f"Columns not found. Found columns: {df.columns.tolist()}"
         }
 
-    # ✅ Create records (RFID + Gmail)
-    records = df[["rfid", "gmail"]].dropna().to_dict(orient="records")
+    # Employee ID is OPTIONAL
+    if "employee_id" not in df.columns:
+        print("⚠️ Employee ID column not found. Continuing without Employee ID.")
 
-    # Clean values
+    # ✅ Create records
+    columns = ["rfid", "gmail"]
+
+    if "employee_id" in df.columns:
+        columns.append("employee_id")
+
+    if "novel_emp" in df.columns:
+        columns.append("novel_emp")
+
+    records = df[columns].to_dict(orient="records")
+
+    # ✅ Clean values
     for r in records:
-        r["rfid"] = str(r["rfid"]).strip()
-        r["gmail"] = str(r["gmail"]).strip()
+
+        # RFID
+        if pd.notna(r.get("rfid")):
+            r["rfid"] = str(r["rfid"]).strip()
+        else:
+            r["rfid"] = ""
+
+        # Gmail
+        if pd.notna(r.get("gmail")):
+            r["gmail"] = str(r["gmail"]).strip()
+        else:
+            r["gmail"] = ""
+
+        # Employee ID - OPTIONAL
+        if "employee_id" in r:
+
+            if pd.notna(r["employee_id"]):
+                # Excel may read 123 as 123.0
+                employee_id = r["employee_id"]
+
+                if isinstance(employee_id, float) and employee_id.is_integer():
+                    employee_id = int(employee_id)
+
+                r["employee_id"] = str(employee_id).strip()
+            else:
+                r["employee_id"] = ""
+        
+        # Novel Employee - OPTIONAL
+        if "novel_emp" in r:
+            if pd.notna(r["novel_emp"]):
+                try:
+                    r["novel_emp"] = int(r["novel_emp"])
+                except (ValueError, TypeError):
+                    r["novel_emp"] = 0
+            else:
+                r["novel_emp"] = 0
+
+    # Remove invalid records
+    records = [
+        r for r in records
+        if r["rfid"] and r["gmail"]
+    ]
 
     CHUNK_SIZE = 80
-    chunks = [records[i:i + CHUNK_SIZE] for i in range(0, len(records), CHUNK_SIZE)]
+
+    chunks = [
+        records[i:i + CHUNK_SIZE]
+        for i in range(0, len(records), CHUNK_SIZE)
+    ]
 
     topic = f"esp32/cmd/{device_id}"
 
@@ -905,15 +1154,23 @@ async def upload_excel(device_id: str, file: UploadFile = File(...)):
     for i, chunk in enumerate(chunks):
 
         # ✅ Extract RFID list
-        rfid_list = [item["rfid"] for item in chunk]
+        rfid_list = [
+            item["rfid"]
+            for item in chunk
+        ]
 
         payload = "bulk_add={" + ",".join(rfid_list) + "}"
 
-        print(f"\n🚀 Sending chunk {i+1}/{len(chunks)}")
+        print(f"\n🚀 Sending chunk {i + 1}/{len(chunks)}")
+        print(f"📨 Payload: {payload}")
 
         event.clear()
 
-        mqtt_client.publish(topic, payload, qos=1)
+        mqtt_client.publish(
+            topic,
+            payload,
+            qos=1
+        )
 
         time.sleep(0.05)
 
@@ -921,32 +1178,47 @@ async def upload_excel(device_id: str, file: UploadFile = File(...)):
 
         # ✅ Wait for ACK
         if not event.wait(timeout=15):
-            print(f"❌ Timeout at chunk {i+1}")
-            return {"error": f"Timeout at chunk {i+1}"}
+            print(f"❌ Timeout at chunk {i + 1}")
 
-        print(f"✅ ACK received for chunk {i+1}")
+            return {
+                "error": f"Timeout at chunk {i + 1}"
+            }
+
+        print(f"✅ ACK received for chunk {i + 1}")
 
         # ✅ Save chunk to MongoDB
-        print(f"💾 Saving chunk {i+1}...")
+        print(f"💾 Saving chunk {i + 1}...")
 
         for item in chunk:
+
             document = {
                 "device_id": device_id,
                 "RFID": item["rfid"],
                 "gmail": item["gmail"]
             }
 
+            # Add Employee ID only when provided
+            if item.get("employee_id"):
+                document["Employee_id"] = item["employee_id"]
+            
+            # Novel Employee
+            if item.get("novel_emp") == 1:
+                document["novel_emp"] = 1
+
+            print("💾 Saving:", document)
+
             esp32_user.update_one(
                 {
-                    "device_id": document["device_id"],
-                    "RFID": document["RFID"],
-                    "gmail": document["gmail"]
+                    "device_id": device_id,
+                    "RFID": item["rfid"]
                 },
-                {"$setOnInsert": document},
+                {
+                    "$setOnInsert": document
+                },
                 upsert=True
             )
 
-        print(f"✅ Chunk {i+1} saved successfully")
+        print(f"✅ Chunk {i + 1} saved successfully")
 
     return {
         "device": device_id,
@@ -954,7 +1226,6 @@ async def upload_excel(device_id: str, file: UploadFile = File(...)):
         "chunks": len(chunks),
         "status": "completed"
     }
-
 
 ##==========Health status hourly log webpage api=======================================
 esp32_details_collection = db["esp32_details"]
@@ -1283,39 +1554,80 @@ def get_esp32_logs_filter(
 ):
 
     try:
+        # -----------------------------
         # Validate dates
+        # -----------------------------
         try:
             from_dt = datetime.strptime(from_date, "%d-%m-%Y")
             to_dt = datetime.strptime(to_date, "%d-%m-%Y")
+
         except ValueError:
             raise HTTPException(
                 status_code=400,
                 detail="Date format must be DD-MM-YYYY"
             )
 
+        # -----------------------------
         # Check date range
+        # -----------------------------
         if from_dt > to_dt:
             raise HTTPException(
                 status_code=400,
                 detail="from_date cannot be greater than to_date"
             )
 
-        # Convert dates to strings in the same format stored in MongoDB
+        # -----------------------------
+        # Convert dates to strings
+        # -----------------------------
         from_date_str = from_dt.strftime("%d-%m-%Y")
         to_date_str = to_dt.strftime("%d-%m-%Y")
 
-        # Generate all dates between from_date and to_date
+        # -----------------------------
+        # Generate date list
+        # -----------------------------
         date_list = []
 
         current_date = from_dt
 
         while current_date <= to_dt:
+
             date_list.append(
                 current_date.strftime("%d-%m-%Y")
             )
+
             current_date += timedelta(days=1)
 
-        # MongoDB query
+        # =====================================================
+        # GET SITE / FLOOR / CABIN FROM esp32_details
+        # =====================================================
+
+        device_details = esp32_details_collection.find_one(
+            {
+                "device_id": device_id
+            },
+            {
+                "_id": 0,
+                "site": 1,
+                "floor": 1,
+                "cabin": 1
+            }
+        )
+
+        # If device is not found in esp32_details
+        if not device_details:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Device {device_id} not found in esp32_details"
+            )
+
+        site = device_details.get("site")
+        floor = device_details.get("floor")
+        cabin = device_details.get("cabin")
+
+        # =====================================================
+        # GET LOGS
+        # =====================================================
+
         query = {
             "device_id": device_id,
             "date": {
@@ -1332,6 +1644,8 @@ def get_esp32_logs_filter(
                     "RFID": 1,
                     "direction": 1,
                     "gmail": 1,
+                    "Employee_id": 1,
+                    "novel_emp": 1,
                     "date": 1,
                     "time": 1
                 }
@@ -1341,9 +1655,26 @@ def get_esp32_logs_filter(
             ])
         )
 
+        # =====================================================
+        # ADD SITE / FLOOR / CABIN TO EACH LOG
+        # =====================================================
+
+        for log in logs:
+
+            log["site"] = site
+            log["floor"] = floor
+            log["cabin"] = cabin
+
+        # =====================================================
+        # RESPONSE
+        # =====================================================
+
         return {
             "status": "success",
             "device_id": device_id,
+            "site": site,
+            "floor": floor,
+            "cabin": cabin,
             "from_date": from_date_str,
             "to_date": to_date_str,
             "count": len(logs),
@@ -1354,6 +1685,7 @@ def get_esp32_logs_filter(
         raise
 
     except Exception as e:
+
         print(f"ESP32 LOG FILTER ERROR: {e}")
 
         raise HTTPException(
