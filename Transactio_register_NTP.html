@@ -2046,22 +2046,20 @@
 }
 
 
-
-
-
-
-
-
     </style>
-
-
-
-
 
 </head>
 
+
+
+
+
+
+
+
+
 <body>
-    
+
     <!-- ───── HEADER ───── -->
     <header class="header">
         <div class="header-inner">
@@ -2091,6 +2089,13 @@
                         <line x1="5" y1="12" x2="19" y2="12" />
                     </svg>
                     Add Device
+                </button>
+                <button class="btn-primary bulk-update-btn" id="bulkUpdateBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <rect x="3" y="5" width="18" height="14" rx="2"></rect>
+                        <path d="M8 10h8M8 14h5"></path>
+                    </svg>
+                    <span id="bulkUpdateBtnText">Bulk Update</span>
                 </button>
             </div>
         </div>
@@ -2409,6 +2414,17 @@
 
 // ══════════════════════════════════════════════════════
 
+
+
+
+
+
+
+
+
+
+
+
 const SITE_URLS = {
     ntp: 'https://ntpaccesshub.novelinfra.com',
     nom: 'https://esp32accesshub.novelinfra.com',
@@ -2438,6 +2454,14 @@ let deleteTarget = null;
 
 let currentUsers = [];
 
+// ─── Bulk User Update State ───────────────────────────────
+let bulkSelectionMode = false;
+let selectedDeviceIds = new Set();
+let bulkAddMode = false;
+
+
+
+
 // ─── DOM ────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 const cardsGrid = $('cardsGrid');
@@ -2445,6 +2469,8 @@ const emptyState = $('emptyState');
 const cardCount = $('cardCount');
 const searchInput = $('searchInput');
 const openModalBtn = $('openModalBtn');
+const bulkUpdateBtn = $('bulkUpdateBtn');
+const bulkUpdateBtnText = $('bulkUpdateBtnText');
 const closeModalBtn = $('closeModalBtn');
 const cancelBtn = $('cancelBtn');
 const saveCardBtn = $('saveCardBtn');
@@ -2507,13 +2533,18 @@ siteSelector.addEventListener('change', async function () {
 
     const selectedSite = this.value;
 
-    // Save selected site
+    // Clear bulk selection when changing site
+    bulkSelectionMode = false;
+    bulkAddMode = false;
+    selectedDeviceIds.clear();
+
+    bulkUpdateBtnText.textContent = 'Bulk Update';
+    bulkUpdateBtn.classList.remove('bulk-ready');
+
     localStorage.setItem('selectedSite', selectedSite);
 
-    // Update state
     activeFilter = selectedSite;
 
-    // Update backend URL
     BASE_URL = SITE_URLS[selectedSite];
 
     console.log('================================');
@@ -2521,7 +2552,6 @@ siteSelector.addEventListener('change', async function () {
     console.log('BASE_URL:', BASE_URL);
     console.log('================================');
 
-    // Load data from selected site
     await fetchDevices();
 });
 
@@ -2741,6 +2771,21 @@ if (networkType === 'ethernet') {
      ${lastResetBadge}
     <div class="card-body">
       <div class="card-top">
+      ${
+          bulkSelectionMode
+            ? `
+              <label class="bulk-select-wrap" title="Select ${escHtml(d.device_id)}">
+                  <input
+                      type="checkbox"
+                      class="bulk-device-checkbox"
+                      data-device-id="${escHtml(d.device_id)}"
+                      ${selectedDeviceIds.has(d.device_id) ? 'checked' : ''}
+                  >
+                  <span class="bulk-checkmark"></span>
+              </label>
+            `
+            : ''
+        }
         <div class="device-icon ${networkType}">
             ${deviceIcon}
         </div>
@@ -2895,6 +2940,26 @@ if (networkType === 'ethernet') {
     e.stopPropagation();
     openUsersPanel(d.device_id);
   });
+    const bulkCheckbox = el.querySelector('.bulk-device-checkbox');
+
+  if (bulkCheckbox) {
+      bulkCheckbox.addEventListener('click', e => {
+          e.stopPropagation();
+      });
+
+      bulkCheckbox.addEventListener('change', e => {
+          const deviceId = e.target.dataset.deviceId;
+
+          if (e.target.checked) {
+              selectedDeviceIds.add(deviceId);
+          } else {
+              selectedDeviceIds.delete(deviceId);
+          }
+
+          updateBulkButton();
+          updateCardSelectionState();
+      });
+  }
 
   return el;
 }
@@ -3024,93 +3089,6 @@ function buildOverlayJson(d) {
     `<span class="oj-punct">}</span>`,
   ].filter(Boolean).join('\n');
 }
-
-// ─── Filters ────────────────────────────────────────────
-// function renderFilters() {
-//     const group = document.querySelector('.filter-group');
-
-//     group.innerHTML = `
-//         <select id="siteSelector" class="filter-btn">
-//             <option value="ntp">NTP</option>
-//             <option value="nom">NOM</option>
-//             <option value="now">NOW</option>
-//             <option value="nbp">NBP</option>
-//             <option value="noc">NOC</option>
-//             <option value="noq">NOQ</option>
-//             <option value="nob">NOB</option>
-//         </select>
-//     `;
-
-//     const siteSelector = document.getElementById('siteSelector');
-
-//     // Keep currently selected site
-//     siteSelector.value = activeFilter;
-
-//         siteSelector.addEventListener('change', async function () {
-    
-//         const selectedSite = this.value;
-    
-//         // Save selected site
-//         localStorage.setItem('selectedSite', selectedSite);
-    
-//         // Update active site
-//         activeFilter = selectedSite;
-    
-//         // Update BASE_URL
-//         BASE_URL = SITE_URLS[selectedSite];
-    
-//         console.log('Selected Site:', selectedSite);
-//         console.log('BASE_URL:', BASE_URL);
-    
-//         await fetchDevices();
-//     });
-// }
-
-
-
-//door lock and unlock
-
-// const health = healthMap[d.id] || {};
-// const doorStatus = String(health.door_status || 'LOCKED').toUpperCase();
-
-// const isLocked = doorStatus === 'LOCKED';
-
-// const doorButton = `
-//   <button
-//     class="card-unlock-btn ${isLocked ? 'door-locked' : 'door-unlocked'}"
-//     data-id="${d.id}"
-//     data-door-status="${isLocked ? 'LOCKED' : 'UNLOCKED'}"
-//   >
-//     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-//       ${
-//         isLocked
-//           ? `
-//             <rect x="5" y="10" width="14" height="11" rx="2"></rect>
-//             <path d="M8 10V7a4 4 0 0 1 8 0v3"></path>
-//             <circle cx="12" cy="15.5" r="1"></circle>
-//           `
-//           : `
-//             <rect x="5" y="10" width="14" height="11" rx="2"></rect>
-//             <path d="M8 10V7a4 4 0 0 1 8 0"></path>
-//             <path d="M16 10V7"></path>
-//             <circle cx="12" cy="15.5" r="1"></circle>
-//           `
-//       }
-//     </svg>
-
-//     ${isLocked ? 'Unlock Door' : 'Lock Door'}
-//   </button>
-// `;
-
-
-
-
-
-
-
-
-
-
 
 
 // ══════════════════════════════════════════════════════
@@ -3483,147 +3461,297 @@ function handleUsersSearch() {
 
 // ─── Add Employee ───────────────────────────────────────
 function openAddEmployeeModal() {
-  employeeId.value = '';
-  eGmail.value = '';
-  eRFID.value = '';
-  document.getElementById('novelEmp').checked = false;
-  showModal(employeeBackdrop);
+
+    bulkAddMode = false;
+
+    employeeId.value = '';
+    eGmail.value = '';
+    eRFID.value = '';
+
+    document.getElementById('novelEmp').checked = false;
+
+    document.getElementById('employeeModalTitle').textContent =
+        'Add New Employee';
+
+    saveEmployeeBtnText.textContent = 'Add Employee';
+
+    showModal(employeeBackdrop);
 }
 
 async function handleSaveEmployee() {
-  const gmail = eGmail.value.trim();
-  const employee_id = employeeId.value.trim();
-  const rfid = eRFID.value.trim();
 
-  const novel_emp = document.getElementById('novelEmp').checked ? 1 : 0;
+    const gmail = eGmail.value.trim();
+    const employee_id = employeeId.value.trim();
+    const rfid = eRFID.value.trim();
 
-  const device_id = usersTitle.textContent.split(' — ')[1];
+    const novel_emp =
+        document.getElementById('novelEmp').checked ? 1 : 0;
 
-  // Gmail is mandatory
-  if (!gmail) {
-    highlight(eGmail);
-    showToast('⚠️ Gmail is required');
-    return;
-  }
 
-  // RFID is mandatory
-  if (!rfid) {
-    highlight(eRFID);
-    showToast('⚠️ RFID is required');
-    return;
-  }
+    // ─────────────────────────────────────────────
+    // Validation
+    // ─────────────────────────────────────────────
 
-  saveEmployeeBtn.disabled = true;
-  saveEmployeeBtnText.textContent = 'Adding…';
-
-  try {
-    // 1. Send Gmail
-    const url1 =
-      `${BASE_URL}/send/${encodeURIComponent(device_id)}` +
-      `?cmd=${encodeURIComponent(`gmail:${gmail}`)}`;
-
-    // 2. Send Employee ID only if entered
-    const url2 = employee_id
-      ? `${BASE_URL}/send/${encodeURIComponent(device_id)}` +
-        `?cmd=${encodeURIComponent(`employee_id:${employee_id}`)}`
-      : null;
-
-    // 3. Send RFID
-    const url3 =
-      `${BASE_URL}/send/${encodeURIComponent(device_id)}` +
-      `?cmd=${encodeURIComponent(`ADD:${rfid}`)}`;
-    const url4 =
-        `${BASE_URL}/send/${encodeURIComponent(device_id)}` +
-        `?cmd=${encodeURIComponent(`novel_emp:${novel_emp}`)}`;
-
-    // Send Gmail
-    showToast('⏳ Sending Gmail update…');
-
-    console.log("Employee ID:", employee_id);
-    console.log("Employee ID URL:", url2);
-
-    const res1 = await fetch(url1, {
-      method: 'GET',
-      credentials: 'omit'
-    });
-
-    if (!res1.ok) {
-      showToast(`❌ Gmail update failed: ${res1.status}`);
-      return;
-    }
-
-    // Send Employee ID only if provided
-    if (employee_id) {
-      showToast('⏳ Sending Employee ID…');
-
-      const res2 = await fetch(url2, {
-        method: 'GET',
-        credentials: 'omit'
-      });
-
-      if (!res2.ok) {
-        showToast(`❌ Employee ID update failed: ${res2.status}`);
+    if (!gmail) {
+        highlight(eGmail);
+        showToast('⚠️ Gmail is required');
         return;
-      }
-    }
-    showToast('⏳ Sending Novel Employee status…');
-
-     console.log("Novel Employee:", novel_emp);
-     console.log("Novel Employee URL:", url4);
-     
-     const res4 = await fetch(url4, {
-       method: 'GET',
-       credentials: 'omit'
-     });
-     
-     if (!res4.ok) {
-       showToast(`❌ Novel Employee update failed: ${res4.status}`);
-       return;
-     }
-
-    // Send RFID / ADD command
-    showToast('⏳ Sending RFID update…');
-
-    const res3 = await fetch(url3, {
-      method: 'GET',
-      credentials: 'omit'
-    });
-
-    // ==========================================
-    // RFID ALREADY EXISTS
-    // ==========================================
-    if (res3.status === 409) {
-      showToast(`⚠️ RFID ${rfid} is already present for this device`);
-
-      // Keep modal open so user can enter another RFID
-      return;
     }
 
-    // ==========================================
-    // RFID ADDED SUCCESSFULLY
-    // ==========================================
-    if (res3.ok) {
-      showToast(`🎉 User ${gmail} added successfully!`);
+    if (!rfid) {
+        highlight(eRFID);
+        showToast('⚠️ RFID is required');
+        return;
+    }
 
-      hideModal(employeeBackdrop);
 
-      // Refresh user list after server sync
-      setTimeout(() => {
-        openUsersPanel(device_id);
-      }, 1200);
+    // ─────────────────────────────────────────────
+    // Determine target devices
+    // ─────────────────────────────────────────────
+
+    let targetDevices = [];
+
+    if (bulkAddMode) {
+
+        targetDevices = Array.from(selectedDeviceIds);
+
+        if (targetDevices.length === 0) {
+            showToast('⚠️ No devices selected');
+            return;
+        }
 
     } else {
-      showToast(`❌ RFID update failed: ${res3.status}`);
+
+        const device_id =
+            usersTitle.textContent.split(' — ')[1];
+
+        if (!device_id) {
+            showToast('⚠️ Device ID missing');
+            return;
+        }
+
+        targetDevices = [device_id];
     }
 
-  } catch (err) {
-    showToast(`❌ Network error: ${err.message}`);
 
-  } finally {
-    saveEmployeeBtn.disabled = false;
-    saveEmployeeBtnText.textContent = 'Add Employee';
-  }
+    saveEmployeeBtn.disabled = true;
+
+    if (bulkAddMode) {
+        saveEmployeeBtnText.textContent = 'Adding to Devices…';
+    } else {
+        saveEmployeeBtnText.textContent = 'Adding…';
     }
+
+
+    // ─────────────────────────────────────────────
+    // Result tracking
+    // ─────────────────────────────────────────────
+
+    const successfulDevices = [];
+    const failedDevices = [];
+
+
+    try {
+
+        // =================================================
+        // Process devices one by one
+        // =================================================
+
+        for (let i = 0; i < targetDevices.length; i++) {
+
+            const device_id = targetDevices[i];
+
+            showToast(
+                `⏳ Adding user to ${device_id} (${i + 1}/${targetDevices.length})…`
+            );
+
+
+            // ─────────────────────────────────────────
+            // 1. Gmail
+            // ─────────────────────────────────────────
+
+            const url1 =
+                `${BASE_URL}/send/${encodeURIComponent(device_id)}` +
+                `?cmd=${encodeURIComponent(`gmail:${gmail}`)}`;
+
+
+            const res1 = await fetch(url1, {
+                method: 'GET',
+                credentials: 'omit'
+            });
+
+
+            if (!res1.ok) {
+
+                failedDevices.push({
+                    device_id,
+                    reason: `Gmail failed (${res1.status})`
+                });
+
+                continue;
+            }
+
+
+            // ─────────────────────────────────────────
+            // 2. Employee ID
+            // ─────────────────────────────────────────
+
+            if (employee_id) {
+
+                const url2 =
+                    `${BASE_URL}/send/${encodeURIComponent(device_id)}` +
+                    `?cmd=${encodeURIComponent(`employee_id:${employee_id}`)}`;
+
+
+                const res2 = await fetch(url2, {
+                    method: 'GET',
+                    credentials: 'omit'
+                });
+
+
+                if (!res2.ok) {
+
+                    failedDevices.push({
+                        device_id,
+                        reason: `Employee ID failed (${res2.status})`
+                    });
+
+                    continue;
+                }
+            }
+
+
+            // ─────────────────────────────────────────
+            // 3. Novel Employee
+            // ─────────────────────────────────────────
+
+            const url3 =
+                `${BASE_URL}/send/${encodeURIComponent(device_id)}` +
+                `?cmd=${encodeURIComponent(`novel_emp:${novel_emp}`)}`;
+
+
+            const res3 = await fetch(url3, {
+                method: 'GET',
+                credentials: 'omit'
+            });
+
+
+            if (!res3.ok) {
+
+                failedDevices.push({
+                    device_id,
+                    reason: `Novel Employee update failed (${res3.status})`
+                });
+
+                continue;
+            }
+
+
+            // ─────────────────────────────────────────
+            // 4. RFID
+            // ─────────────────────────────────────────
+
+            const url4 =
+                `${BASE_URL}/send/${encodeURIComponent(device_id)}` +
+                `?cmd=${encodeURIComponent(`ADD:${rfid}`)}`;
+
+
+            const res4 = await fetch(url4, {
+                method: 'GET',
+                credentials: 'omit'
+            });
+
+
+            // RFID already exists
+            if (res4.status === 409) {
+
+                failedDevices.push({
+                    device_id,
+                    reason: `RFID ${rfid} already exists`
+                });
+
+                continue;
+            }
+
+
+            if (!res4.ok) {
+
+                failedDevices.push({
+                    device_id,
+                    reason: `RFID failed (${res4.status})`
+                });
+
+                continue;
+            }
+
+
+            // Device completed successfully
+            successfulDevices.push(device_id);
+        }
+
+
+        // =================================================
+        // Final result
+        // =================================================
+
+        if (failedDevices.length === 0) {
+
+            showToast(
+                `🎉 User added successfully to ${successfulDevices.length} device${successfulDevices.length !== 1 ? 's' : ''}!`
+            );
+
+        } else {
+
+            showToast(
+                `⚠️ Added to ${successfulDevices.length}/${targetDevices.length} devices`
+            );
+
+            console.warn(
+                'Bulk Add Failed Devices:',
+                failedDevices
+            );
+        }
+
+
+        // =================================================
+        // Close modal
+        // =================================================
+
+        hideModal(employeeBackdrop);
+
+
+        // =================================================
+        // Reset bulk selection
+        // =================================================
+
+        if (bulkAddMode) {
+
+            setTimeout(() => {
+
+                exitBulkSelectionMode();
+
+            }, 800);
+        }
+
+
+    } catch (err) {
+
+        console.error('Bulk employee update error:', err);
+
+        showToast(
+            `❌ Network error: ${err.message}`
+        );
+
+    } finally {
+
+        saveEmployeeBtn.disabled = false;
+
+        saveEmployeeBtnText.textContent =
+            bulkAddMode
+                ? 'Add to Selected Devices'
+                : 'Add Employee';
+    }
+}
 
 // ─── Bulk Upload ─────────────────────────────────────────
 function openBulkUploadModal() {
@@ -3762,8 +3890,137 @@ function highlight(el) {
   setTimeout(() => { el.style.borderColor = ''; el.style.boxShadow = ''; }, 2200);
 }
 
+
+
+
+// ══════════════════════════════════════════════════════
+// BULK USER UPDATE
+// ══════════════════════════════════════════════════════
+
+function enterBulkSelectionMode() {
+    bulkSelectionMode = true;
+    bulkAddMode = false;
+    selectedDeviceIds.clear();
+
+    bulkUpdateBtnText.textContent = 'Bulk Update';
+
+    renderCards();
+
+    showToast('☑️ Select the devices you want to update');
+}
+
+
+function exitBulkSelectionMode() {
+    bulkSelectionMode = false;
+    bulkAddMode = false;
+    selectedDeviceIds.clear();
+
+    bulkUpdateBtnText.textContent = 'Bulk Update';
+
+    renderCards();
+}
+
+
+function updateBulkButton() {
+
+    const count = selectedDeviceIds.size;
+
+    if (count > 0) {
+
+        bulkUpdateBtnText.textContent = 'Bulk Add User';
+
+        bulkUpdateBtn.classList.add('bulk-ready');
+
+    } else {
+
+        bulkUpdateBtnText.textContent = 'Bulk Update';
+
+        bulkUpdateBtn.classList.remove('bulk-ready');
+
+    }
+}
+
+
+function updateCardSelectionState() {
+
+    document.querySelectorAll('.card').forEach(card => {
+
+        const checkbox = card.querySelector('.bulk-device-checkbox');
+
+        if (!checkbox) return;
+
+        const deviceId = checkbox.dataset.deviceId;
+
+        card.classList.toggle(
+            'bulk-selected',
+            selectedDeviceIds.has(deviceId)
+        );
+
+    });
+}
+
+
+// ─── Open employee modal for bulk operation ─────────────
+
+function openBulkEmployeeModal() {
+
+    if (selectedDeviceIds.size === 0) {
+        showToast('⚠️ Please select at least one device');
+        return;
+    }
+
+    bulkAddMode = true;
+
+    employeeId.value = '';
+    eGmail.value = '';
+    eRFID.value = '';
+
+    document.getElementById('novelEmp').checked = false;
+
+    document.getElementById('employeeModalTitle').textContent =
+        `Bulk Add User — ${selectedDeviceIds.size} Device${selectedDeviceIds.size !== 1 ? 's' : ''}`;
+
+    saveEmployeeBtnText.textContent = 'Add to Selected Devices';
+
+    showModal(employeeBackdrop);
+}
+
+
+
+
+
+
+
+
+
+
+
+
 // ─── Event Listeners ─────────────────────────────────────
 openModalBtn.addEventListener('click', openAddModal);
+bulkUpdateBtn.addEventListener('click', () => {
+
+    // Not currently selecting devices
+    if (!bulkSelectionMode) {
+
+        enterBulkSelectionMode();
+
+        return;
+    }
+
+
+    // Currently selecting but nothing selected
+    if (selectedDeviceIds.size === 0) {
+
+        showToast('⚠️ Please select at least one device');
+
+        return;
+    }
+
+
+    // Devices selected → open employee modal
+    openBulkEmployeeModal();
+});
 closeModalBtn.addEventListener('click', () => hideModal(modalBackdrop));
 cancelBtn.addEventListener('click', () => hideModal(modalBackdrop));
 saveCardBtn.addEventListener('click', handleSave);
