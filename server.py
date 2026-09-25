@@ -119,13 +119,18 @@ def on_message(client, userdata, msg):
 
     # ✅ MUST be FIRST
     if topic == "esp32/offline_logs":
-
+    
         try:
             data = json.loads(payload)
     
             device_id = data["device_id"]
             RFID = str(data["uid"])
             direction = data["direction"]
+    
+            # Support both old and new offline log formats
+            # New: access_status is present
+            # Old: access_status is not present
+            access_status = data.get("access_status")
     
             user = esp32_user.find_one(
                 {
@@ -160,9 +165,12 @@ def on_message(client, userdata, msg):
                 "offline_log": True
             }
     
+            # Add access_status only if it was sent
+            if access_status is not None:
+                log_document["access_status"] = access_status
+    
             esp32_logs.insert_one(log_document)
     
-            # print("Offline RFID log saved")
             logger.info("Offline RFID log saved")
     
         except Exception as e:
@@ -295,32 +303,91 @@ def on_message(client, userdata, msg):
 
     # 🔁 REQUEST → RESPONSE HANDLING
     if topic == "esp32/request":
-        devices[device_id] = "online"  # mark online on any request
+        devices[device_id] = "online"
+    
         print(f"RFID EVENT from {device_id}: {data}")
-        print("testig log testing==",data["device_id"],"====", data["data"])
-        # print(type(data))
-        # print(data["data"])
-        reader, RFID, direction = data["data"].split(":")
-        # print(reader)
-        # print(RFID)
-        # print(direction)
-        device_id=data["device_id"]
-        # print(device_id)
+        print("testing log testing==", data["device_id"], "====", data["data"])
+    
+        # Supports both:
+        # Old format: reader1:123456:IN
+        # New format: reader1:123456:IN:Granted
+        parts = data["data"].split(":")
+    
+        if len(parts) == 4:
+            reader, RFID, direction, access_status = parts
+        elif len(parts) == 3:
+            reader, RFID, direction = parts
+            access_status = None
+        else:
+            print("Invalid RFID data format:", data["data"])
+            return
+    
+        device_id = data["device_id"]
+    
+        # ---------------------------------------------------------
+        # NORMAL USER LOOKUP
+        # Search using device_id + RFID
+        # This is the normal flow for Granted logs
+        # ---------------------------------------------------------
         user = esp32_user.find_one(
-        {
-            "device_id": device_id,
-            "RFID": RFID
-        },
-            {"_id": 0, "gmail": 1, "Employee_id": 1, "novel_emp": 1}
+            {
+                "device_id": device_id,
+                "RFID": RFID
+            },
+            {
+                "_id": 0,
+                "gmail": 1,
+                "Employee_id": 1,
+                "novel_emp": 1
+            }
         )
-        # gmail = user["gmail"] if user else None
+    
+        # ---------------------------------------------------------
+        # DENIED LOG HANDLING
+        # If RFID is not found on this device, search the RFID
+        # across all ESP32 users
+        # ---------------------------------------------------------
+        if (
+            access_status is not None
+            and access_status.strip().lower() == "denied"
+            and user is None
+        ):
+            print(
+                f"Denied RFID {RFID} not found for device {device_id}. "
+                f"Searching RFID globally..."
+            )
+    
+            user = esp32_user.find_one(
+                {
+                    "RFID": RFID
+                },
+                {
+                    "_id": 0,
+                    "gmail": 1,
+                    "Employee_id": 1,
+                    "novel_emp": 1
+                }
+            )
+    
+            if user:
+                print(f"RFID {RFID} found in another ESP32 user record")
+            else:
+                print(f"RFID {RFID} not found in any ESP32 user record")
+    
+        # ---------------------------------------------------------
+        # GET USER DETAILS
+        # ---------------------------------------------------------
         gmail = user.get("gmail") if user else None
         employee_id = user.get("Employee_id") if user else None
-        novel_emp = user.get("novel_emp") if user else None                 #added new line for novel emp
+        novel_emp = user.get("novel_emp") if user else None
+    
+        # ---------------------------------------------------------
+        # CREATE LOG DOCUMENT
+        # ---------------------------------------------------------
         now = datetime.now()
+    
         log_document = {
             "device_id": device_id,
-            # "reader": reader,
             "RFID": RFID,
             "direction": direction,
             "gmail": gmail,
@@ -328,21 +395,40 @@ def on_message(client, userdata, msg):
             "novel_emp": novel_emp,
             "date": now.strftime("%d-%m-%Y"),
             "time": now.strftime("%H:%M:%S")
-        }  
+        }
+    
+        # Add access_status only when ESP32 sent it
+        if access_status is not None:
+            log_document["access_status"] = access_status
+    
+        # ---------------------------------------------------------
+        # SAVE LOG
+        # ---------------------------------------------------------
         esp32_logs.insert_one(log_document)
+    
         print("RFID log saved")
+        print("Device ID:", device_id)
+        print("RFID:", RFID)
         print("Employee ID:", employee_id)
         print("Novel Employee:", novel_emp)
-
-        
-
+        print("Gmail:", gmail)
+        print("Access Status:", access_status)
+    
+        # ---------------------------------------------------------
+        # SEND RESPONSE TO ESP32
+        # ---------------------------------------------------------
         response = {
             "device_id": device_id,
             "status": "ok"
         }
-
+    
         resp_topic = f"esp32/response/{device_id}"
-        mqtt_client.publish(resp_topic, json.dumps(response), qos=1)
+    
+        mqtt_client.publish(
+            resp_topic,
+            json.dumps(response),
+            qos=1
+        )
 
 
     if topic.startswith("esp32/ack_bulk_RM_ALL"):
@@ -361,19 +447,23 @@ def on_message(client, userdata, msg):
     
             device_id = data["device_id"]
     
-            now_local = datetime.now()
+            reset_reason = data.get("Last_reset")
+            reset_time = data.get("Last_reset_time")
+            reset_date = data.get("Last_reset_data")
     
             esp32_reset_logs.insert_one({
                 "device_id": device_id,
-                "last_reset": data["Last Reset"],
-                "date": now_local.strftime("%d-%m-%Y"),
-                "time": now_local.strftime("%H:%M:%S"),
+                "last_reset": reset_reason,
+                "date": reset_date,
+                "time": reset_time,
             })
     
             logger.info(
-                "RESET LOG SAVED: device=%s reset=%s",
+                "RESET LOG SAVED: device=%s reset=%s date=%s time=%s",
                 device_id,
-                data["Last Reset"]
+                reset_reason,
+                reset_date,
+                reset_time
             )
     
         except Exception as e:

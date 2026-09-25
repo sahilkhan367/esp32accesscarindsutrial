@@ -8,19 +8,22 @@
 extern volatile bool offline_upload_running;
 
 
-typedef struct {
+typedef struct
+{
     uint32_t uid;
+    char reader[20];
+    char direction[10];
+    char access_status[12];
+    char device_id[32];
     uint32_t timestamp;
-    char reader[10];
-    char direction[5];
-    char device_id[20];
 } offline_log_t;
 
 void data_parsing(const char *data, size_t data_len);
 extern void send_uart_scan_to_server(
     const char *reader,
     uint32_t uid,
-    const char *direction);
+    const char *direction,
+    const char *access_status);
 void upload_offline_logs(void);
 
 uint32_t uid_to_decimal(const char *uid);
@@ -35,10 +38,14 @@ void rfid_add(const char *id);
 void rfid_remove(const char *id);
 void rfid_display_all(void);
 bool rfid_exists(uint32_t id);
-void save_offline_log(uint32_t uid, const char *reader, const char *direction);
+// void save_offline_log(uint32_t uid, const char *reader, const char *direction);
 void print_offline_logs(void);
 void send_offline_log_to_server(const offline_log_t *log);
 bool offline_logs_available(void);
+void save_offline_log(uint32_t uid,
+                      const char *reader,
+                      const char *direction,
+                      const char *access_status);
 
 extern bool door_lock;
 extern bool previous_door_lock;

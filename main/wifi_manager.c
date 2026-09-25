@@ -43,9 +43,104 @@ static const char *RESET_TAG  = "RESET_TASK";
 void sunday_reset_task(void *arg);
 static void save_last_reset_day(int day);
 static int load_last_reset_day();
+static void time_sync_notification_cb(struct timeval *tv);
+extern volatile bool ntp_time_synced;
 
 
+static void time_sync_notification_cb(struct timeval *tv);
+extern volatile bool ntp_time_synced;
 
+void initialize_sntp(void);
+
+
+static void ntp_sync_task(void *arg)
+{
+    ESP_LOGI("SNTP", "NTP sync task started");
+
+    setenv("TZ", "IST-5:30", 1);
+    tzset();
+
+    // Wait for network
+    while (!ethernet_is_connected() && !wifi_is_sta_connected())
+    {
+        ESP_LOGI("SNTP", "Waiting for network connection...");
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+
+    ESP_LOGI(
+        "SNTP",
+        "Network available. Ethernet=%d WiFi=%d",
+        ethernet_is_connected(),
+        wifi_is_sta_connected()
+    );
+
+    ntp_time_synced = false;
+
+    initialize_sntp();
+
+    // Wait maximum 15 seconds for first sync
+    int retry = 0;
+
+    while (!ntp_time_synced && retry < 30)
+    {
+        vTaskDelay(pdMS_TO_TICKS(500));
+        retry++;
+
+        ESP_LOGI(
+            "SNTP",
+            "Waiting for NTP synchronization... %d/30",
+            retry
+        );
+    }
+
+    if (ntp_time_synced)
+    {
+        ESP_LOGI("SNTP", "NTP synchronization successful");
+    }
+    else
+    {
+        ESP_LOGW("SNTP", "NTP sync failed. Retrying...");
+
+        esp_sntp_stop();
+
+        vTaskDelay(pdMS_TO_TICKS(1000));
+
+        ntp_time_synced = false;
+
+        initialize_sntp();
+
+        retry = 0;
+
+        while (!ntp_time_synced && retry < 30)
+        {
+            vTaskDelay(pdMS_TO_TICKS(500));
+            retry++;
+        }
+
+        if (ntp_time_synced)
+        {
+            ESP_LOGI("SNTP", "NTP synchronization successful after retry");
+        }
+        else
+        {
+            ESP_LOGE("SNTP", "NTP synchronization failed");
+        }
+    }
+
+    if (ntp_time_synced)
+    {
+        xTaskCreate(
+            sunday_reset_task,
+            "sunday_reset",
+            4096,
+            NULL,
+            5,
+            NULL
+        );
+    }
+
+    vTaskDelete(NULL);
+}
 
 void wifi_update_network_led(void)
 {
@@ -135,24 +230,45 @@ bool wifi_get_connected_ssid(char *ssid, size_t len)
 
 
 //-------------------------------
-static void initialize_sntp(void)
+void initialize_sntp(void)
 {
-    // ✅ ADD THIS GUARD
+    ESP_LOGI("SNTP", "Initializing SNTP...");
+
+    // Stop previous SNTP instance if already running
     if (esp_sntp_enabled()) {
-        ESP_LOGI("SNTP", "SNTP already running, skipping init");
-        return;
+        esp_sntp_stop();
     }
 
-    ESP_LOGI("SNTP", "Initializing SNTP");
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    esp_sntp_setservername(0, "time.google.com");
-    esp_sntp_setservername(1, "pool.ntp.org");
+
+    // NTP servers
+    esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_setservername(1, "time.google.com");
+    esp_sntp_setservername(2, "time.cloudflare.com");
+
+    // Sync immediately when NTP response is received
+    esp_sntp_set_sync_mode(SNTP_SYNC_MODE_IMMED);
+
+    // Register callback
+    esp_sntp_set_time_sync_notification_cb(time_sync_notification_cb);
+
+    ESP_LOGI("SNTP", "Starting SNTP...");
+
+    // DO NOT call esp_sntp_getservername() here.
+    // It can return NULL for an unused/uninitialized server slot.
+
+    ESP_LOGI("SNTP", "Server 0 configured: pool.ntp.org");
+    ESP_LOGI("SNTP", "Server 1 configured: time.google.com");
+    ESP_LOGI("SNTP", "Server 2 configured: time.cloudflare.com");
+
     esp_sntp_init();
 
-    setenv("TZ", "IST-5:30", 1);
-    tzset();
+    ESP_LOGI(
+        "SNTP",
+        "SNTP sync status: %d",
+        esp_sntp_get_sync_status()
+    );
 }
-
 
 
 static void wifi_event_handler(void *arg,
@@ -176,7 +292,6 @@ static void wifi_event_handler(void *arg,
         if (ethernet_is_connected())
         {
             ESP_LOGI(TAG, "Ethernet active -> WiFi reconnect skipped");
-            initialize_sntp();
         }
         else
         {
@@ -214,70 +329,11 @@ static void wifi_event_handler(void *arg,
 
         ESP_LOGI(TAG, "STA connected");
 
-        /*
-         * Time configuration
-         */
-        setenv("TZ", "IST-5:30", 1);
-        tzset();
 
-        vTaskDelay(2000 / portTICK_PERIOD_MS);
-
-        initialize_sntp();
-
-        time_t now = 0;
-        struct tm timeinfo = { 0 };
-
-        int retry = 0;
-        const int retry_count = 10;
-
-        while (retry < retry_count)
-        {
-            time(&now);
-            localtime_r(&now, &timeinfo);
-
-            if (timeinfo.tm_year >= (2020 - 1900))
-            {
-                ESP_LOGI("SNTP", "Time synchronized");
-                break;
-            }
-
-            ESP_LOGI("SNTP",
-                     "Waiting for time sync... (%d/%d)",
-                     retry + 1,
-                     retry_count);
-
-            vTaskDelay(2000 / portTICK_PERIOD_MS);
-
-            retry++;
-        }
 
         /*
          * Check if synchronization actually happened
          */
-        if (timeinfo.tm_year < (2020 - 1900))
-        {
-            ESP_LOGE("SNTP", "Time sync FAILED");
-        }
-        else
-        {
-            ESP_LOGI("TIME",
-                     "%02d-%02d-%04d %02d:%02d:%02d",
-                     timeinfo.tm_mday,
-                     timeinfo.tm_mon + 1,
-                     timeinfo.tm_year + 1900,
-                     timeinfo.tm_hour,
-                     timeinfo.tm_min,
-                     timeinfo.tm_sec);
-
-            xTaskCreate(
-                sunday_reset_task,
-                "sunday_reset",
-                4096,
-                NULL,
-                5,
-                NULL
-            );
-        }
 
         /*
          * MQTT starts from your existing code.
@@ -381,7 +437,7 @@ void wifi_connect_sta(const char *ssid, const char *pass)
 
 void wifi_manager_init(void)
 {
-    wifi_event_group = xEventGroupCreate();
+    
 
     esp_err_t ret;
     
@@ -459,6 +515,15 @@ void wifi_manager_init(void)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
     ESP_ERROR_CHECK(esp_wifi_start());
     web_server_start();
+    wifi_event_group = xEventGroupCreate();
+    xTaskCreate(
+    ntp_sync_task,
+    "ntp_sync",
+    4096,
+    NULL,
+    5,
+    NULL
+);
 
     // 🔑 LOAD SAVED CREDENTIALS AFTER BOOT
     if (load_wifi_nvs()) {
@@ -652,3 +717,26 @@ void log_network_status(void)
 }
 
 
+static void time_sync_notification_cb(struct timeval *tv)
+{
+    ntp_time_synced = true;
+
+    ESP_LOGI(TAG, "NTP time synchronized");
+
+    time_t now;
+    struct tm timeinfo;
+
+    time(&now);
+    localtime_r(&now, &timeinfo);
+
+    char time_str[32];
+
+    strftime(
+        time_str,
+        sizeof(time_str),
+        "%d-%m-%Y %H:%M:%S",
+        &timeinfo
+    );
+
+    ESP_LOGI(TAG, "NTP Time: %s", time_str);
+}

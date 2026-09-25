@@ -36,10 +36,14 @@ void bulk_rm_parse_and_remove(const char *data, size_t len);
 void bulk_add_task(void *param);
 void bulk_rm_task(void *param);
 void erase_rfid_data_and_restart(esp_mqtt_client_handle_t client);
-void save_offline_log(uint32_t uid, const char *reader, const char *direction);
+// void save_offline_log(uint32_t uid, const char *reader, const char *direction);
 void print_offline_logs(void);
 void upload_offline_logs(void);
 void send_offline_log_to_server(const offline_log_t *log);
+void save_offline_log(uint32_t uid,
+                      const char *reader,
+                      const char *direction,
+                      const char *access_status);
 
 
 
@@ -632,7 +636,8 @@ void erase_rfid_data_and_restart(esp_mqtt_client_handle_t client)
 
 void save_offline_log(uint32_t uid,
                       const char *reader,
-                      const char *direction)
+                      const char *direction,
+                      const char *access_status)
 {
     nvs_handle_t handle;
 
@@ -657,6 +662,7 @@ void save_offline_log(uint32_t uid,
 
     strcpy(log.reader, reader);
     strcpy(log.direction, direction);
+    strcpy(log.access_status, access_status);
     strcpy(log.device_id, DEVICE_ID);
 
     log.timestamp = (uint32_t)time(NULL);

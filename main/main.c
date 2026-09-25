@@ -34,9 +34,9 @@
 #include "wifi_manager.h"
 
 
-const char *DEVICE_ID = "esp32_010";
+const char *DEVICE_ID = "esp32_049";
 
-const char *VERSION = "1.9V";
+const char *VERSION = "2.0V";
 
 /* ===================== GPIO & UART DEFINES ===================== */
 
@@ -56,6 +56,7 @@ esp_mqtt_client_handle_t mqtt_client;
 volatile bool mqtt_connected = false;
 volatile bool reset_log_pending = true;
 volatile bool offline_upload_running = false;
+volatile bool ntp_time_synced = false;
 
 wifi_ap_record_t ap_info;
 void publish_door_status(void);
@@ -64,6 +65,9 @@ void publish_door_status(void);
 
 esp_reset_reason_t last_reset_reason;
 const char *last_reset_reason_str = "UNKNOWN";
+
+
+
 
 const char *get_reset_reason_string(esp_reset_reason_t reason)
 {
@@ -118,19 +122,66 @@ void publish_reset_reason(void)
         return;
     }
 
+    if (!ntp_time_synced)
+    {
+        ESP_LOGW(TAG, "NTP not synchronized, cannot publish reset reason");
+        return;
+    }
+
     char reset_topic[128];
     char reset_payload[256];
 
-    // Separate MQTT topic
-    sprintf(reset_topic, "esp32/reset_logs/%s", DEVICE_ID);
+    // Get current NTP time
+    time_t now;
+    struct tm timeinfo;
 
-    // Reset JSON payload
-    sprintf(reset_payload,
-            "{\"device_id\":\"%s\",\"Last Reset\":\"%s\"}",
-            DEVICE_ID,
-            last_reset_reason_str);
+    time(&now);
+    localtime_r(&now, &timeinfo);
 
-    ESP_LOGI(TAG, "Publishing reset reason: %s", reset_payload);
+    char date_str[16];
+    char time_str[16];
+
+    strftime(
+        date_str,
+        sizeof(date_str),
+        "%d-%m-%Y",
+        &timeinfo
+    );
+
+    strftime(
+        time_str,
+        sizeof(time_str),
+        "%H:%M:%S",
+        &timeinfo
+    );
+
+    // MQTT topic
+    snprintf(
+        reset_topic,
+        sizeof(reset_topic),
+        "esp32/reset_logs/%s",
+        DEVICE_ID
+    );
+
+    // JSON payload
+    snprintf(
+        reset_payload,
+        sizeof(reset_payload),
+        "{\"device_id\":\"%s\","
+        "\"Last_reset\":\"%s\","
+        "\"Last_reset_time\":\"%s\","
+        "\"Last_reset_data\":\"%s\"}",
+        DEVICE_ID,
+        last_reset_reason_str,
+        time_str,
+        date_str
+    );
+
+    ESP_LOGI(
+        TAG,
+        "Publishing reset reason with NTP time: %s",
+        reset_payload
+    );
 
     esp_mqtt_client_publish(
         mqtt_client,
@@ -147,16 +198,28 @@ void reset_log_task(void *arg)
 {
     ESP_LOGI(TAG, "Reset log task started");
 
+    // Wait for MQTT connection
     while (!mqtt_connected)
     {
+        ESP_LOGI(TAG, "Waiting for MQTT connection...");
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
-    ESP_LOGI(TAG, "MQTT connected, sending reset log");
+    ESP_LOGI(TAG, "MQTT connected");
+
+    // Wait for NTP synchronization
+    while (!ntp_time_synced)
+    {
+        ESP_LOGI(TAG, "Waiting for NTP synchronization...");
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+
+    ESP_LOGI(TAG, "NTP synchronized, sending reset log");
 
     if (reset_log_pending)
     {
         publish_reset_reason();
+
         publish_door_status();
 
         reset_log_pending = false;
@@ -166,7 +229,6 @@ void reset_log_task(void *arg)
 
     vTaskDelete(NULL);
 }
-
 
 
 
@@ -334,17 +396,19 @@ void heartbeat_task(void *pvParameters)
 
 void send_uart_scan_to_server(const char *reader,
                               uint32_t uid,
-                              const char *direction)
+                              const char *direction,
+                              const char *access_status)
 {
-    char data[96];
+    char data[128];
 
     snprintf(
         data,
         sizeof(data),
-        "%s:%lu:%s",
+        "%s:%lu:%s:%s",
         reader,
         (unsigned long)uid,
-        direction);
+        direction,
+        access_status);
 
     mqtt_publish(data, "rfid");
 }
@@ -395,10 +459,10 @@ void uart2_task(void *arg)
                     portMAX_DELAY);
 
                 rx_data[len] = '\0';
-                // printf("Reader 1: %s\n", rx_data);
+                //printf("Reader 1: %s\n", rx_data);
                 uint32_t result;
                 result = uid_to_decimal(rx_data);
-                // printf("%lu\n", (unsigned long)result);
+                //printf("%lu\n", (unsigned long)result);
                 if (rfid_exists(result))
                 {
                     //printf("ACCESS GRANTED\n");
@@ -409,13 +473,14 @@ void uart2_task(void *arg)
                     esp_err_t wifi_status_in = esp_wifi_sta_get_ap_info(&ap_info);
                     if ((wifi_status_in == ESP_OK || ethernet_is_connected_check()) && mqtt_connected) {
                         // printf("Connected to WiFi\n");
-                        send_uart_scan_to_server("reader1", result, "IN");
+                        // send_uart_scan_to_server("reader1", result, "IN");
+                        send_uart_scan_to_server("reader1", result, "IN", "Granted");
                     } else {
-                        //printf("Not Connected\n");
                         save_offline_log(
                             result,
-                            "reader2",
-                            "IN"
+                            "reader1",
+                            "IN",
+                            "Granted"
                         );
                         //print_offline_logs();
                     }
@@ -424,6 +489,25 @@ void uart2_task(void *arg)
                 else
                 {
                     red_led_1_on_500ms(); // ✅ safe, non-blocking
+                    esp_err_t wifi_status_in = esp_wifi_sta_get_ap_info(&ap_info);
+                    if ((wifi_status_in == ESP_OK || ethernet_is_connected_check()) && mqtt_connected) {
+                        // printf("Connected to WiFi\n");
+                        // send_uart_scan_to_server("reader1", result, "IN");
+                        send_uart_scan_to_server("reader1", result, "IN", "Denied");
+                    } else {
+
+                        save_offline_log(
+                            result,
+                            "reader1",
+                            "IN",
+                            "Denied"
+                        );
+                        nvs_stats_t stats;
+                        nvs_get_stats(NULL, &stats);
+                        ESP_LOGI("NVS", "Total entries: %d", stats.total_entries);
+                        ESP_LOGI("NVS", "Used entries: %d", stats.used_entries);
+                        ESP_LOGI("NVS", "Free entries: %d", stats.free_entries);
+                    }
                     // printf("Denaid\n");
                 }
             }
@@ -463,13 +547,15 @@ void uart1_task(void *arg)
                     if ((wifi_status_out == ESP_OK || ethernet_is_connected_check()) && mqtt_connected) {
                         // printf("Connected to WiFi and mqtt\n");
                         // printf("Connected to MQTT\n");
-                        send_uart_scan_to_server("reader2", result, "OUT");
+                        // send_uart_scan_to_server("reader2", result, "OUT");
+                        send_uart_scan_to_server("reader2", result, "OUT", "Granted");
                     } else {
                         //printf("Not Connected\n");
                         save_offline_log(
                             result,
                             "reader2",
-                            "OUT"
+                            "OUT",
+                            "Granted"
                         );
                         //print_offline_logs();
                         nvs_stats_t stats;
@@ -483,6 +569,25 @@ void uart1_task(void *arg)
                 else
                 {
                     red_led_2_on_500ms(); // ✅ safe, non-blocking
+                    esp_err_t wifi_status_out = esp_wifi_sta_get_ap_info(&ap_info);
+                    if ((wifi_status_out == ESP_OK || ethernet_is_connected_check()) && mqtt_connected) {
+                        send_uart_scan_to_server("reader2", result, "OUT", "Denied");
+                    } else {
+                        //printf("Not Connected\n");
+                        save_offline_log(
+                            result,
+                            "reader2",
+                            "OUT",
+                            "Denied"
+                        );
+                        //print_offline_logs();
+                        nvs_stats_t stats;
+                        nvs_get_stats(NULL, &stats);
+                        ESP_LOGI("NVS", "Total entries: %d", stats.total_entries);
+                        ESP_LOGI("NVS", "Used entries: %d", stats.used_entries);
+                        ESP_LOGI("NVS", "Free entries: %d", stats.free_entries);
+                    }
+                    // send_uart_scan_to_server("reader2", result, "OUT");
                     // printf("Denaid\n");
                 }
             }
@@ -767,9 +872,11 @@ void nvs_init(void)
 
 void app_main(void)
 {
+
     last_reset_reason = esp_reset_reason();
     last_reset_reason_str = get_reset_reason_string(last_reset_reason);
     ESP_LOGI("RESET", "Last reset reason: %s", last_reset_reason_str);
+    
 
 
     /* ---------- WiFi Initialization ---------- */
