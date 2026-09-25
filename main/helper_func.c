@@ -868,7 +868,6 @@ void upload_offline_logs(void)
     nvs_close(handle);
 }
 
-
 void send_offline_log_to_server(const offline_log_t *log)
 {
     char json[256];
@@ -880,12 +879,16 @@ void send_offline_log_to_server(const offline_log_t *log)
         "\"uid\":%lu,"
         "\"reader\":\"%s\","
         "\"direction\":\"%s\","
+        "\"access_status\":\"%s\","
         "\"timestamp\":%lu}",
         log->device_id,
         (unsigned long)log->uid,
         log->reader,
         log->direction,
+        log->access_status,
         (unsigned long)log->timestamp);
+
+    ESP_LOGI("OFFLINE", "Sending offline JSON: %s", json);
 
     int msg_id_i = esp_mqtt_client_publish(
         mqtt_client,
@@ -894,5 +897,6 @@ void send_offline_log_to_server(const offline_log_t *log)
         0,
         2,
         0);
-        ESP_LOGI("OFFLINE", "Publish msg_id=%d", msg_id_i);
+
+    ESP_LOGI("OFFLINE", "Publish msg_id=%d", msg_id_i);
 }
