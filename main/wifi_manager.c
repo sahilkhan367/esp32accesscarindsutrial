@@ -19,8 +19,11 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include <inttypes.h>
+#include "esp_timer.h"
+
 #include "ethernet_module.h"
-static bool ethernet_priority = false;
+// static bool ethernet_priority = false;
 
 
 #define WIFI_CONNECTED_BIT BIT0
@@ -184,35 +187,35 @@ int wifi_get_rssi(void)
     return -100; // Not connected
 }
 
-static bool ethernet_available(void)
-{
-    return ethernet_is_connected();
-}
+// static bool ethernet_available(void)
+// {
+//     return ethernet_is_connected();
+// }
 
 
 
-static void wifi_signal_task(void *arg)
-{
-    while (1) {
-        int rssi = wifi_get_rssi();
-        const char *quality = "Unknown";
+// static void wifi_signal_task(void *arg)
+// {
+//     while (1) {
+//         int rssi = wifi_get_rssi();
+//         const char *quality = "Unknown";
 
-        if (rssi >= -50) {
-            quality = "Excellent";
-        } else if (rssi >= -60) {
-            quality = "Good";
-        } else if (rssi >= -70) {
-            quality = "Fair";
-        } else if (rssi >= -80) {
-            quality = "Weak";
-        } else {
-            quality = "Very Weak";
-        }
+//         if (rssi >= -50) {
+//             quality = "Excellent";
+//         } else if (rssi >= -60) {
+//             quality = "Good";
+//         } else if (rssi >= -70) {
+//             quality = "Fair";
+//         } else if (rssi >= -80) {
+//             quality = "Weak";
+//         } else {
+//             quality = "Very Weak";
+//         }
 
-        ESP_LOGI("WIFI", "Signal: %d dBm (%s)", rssi, quality);
-        vTaskDelay(pdMS_TO_TICKS(10000));
-    }
-}
+//         ESP_LOGI("WIFI", "Signal: %d dBm (%s)", rssi, quality);
+//         vTaskDelay(pdMS_TO_TICKS(10000));
+//     }
+// }
 
 
 bool wifi_get_connected_ssid(char *ssid, size_t len)
@@ -722,6 +725,9 @@ static void time_sync_notification_cb(struct timeval *tv)
     ntp_time_synced = true;
 
     ESP_LOGI(TAG, "NTP time synchronized");
+    ESP_LOGI("SNTP",
+         "NTP synchronization successful at boot time: %" PRIu32 " ms",
+         (uint32_t)(esp_timer_get_time() / 1000));
 
     time_t now;
     struct tm timeinfo;

@@ -4,7 +4,7 @@
 #include "esp_log.h"
 
 
-static const char *TAG = "GPIO_INIT";
+//static const char *TAG = "GPIO_INIT";
 
 
 // Initialize all GPIOs

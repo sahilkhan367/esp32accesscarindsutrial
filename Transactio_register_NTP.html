@@ -2046,6 +2046,75 @@
 }
 
 
+.rfid-input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+
+.rfid-input-row #eRFID {
+    flex: 1;
+    min-width: 0;
+}
+
+.btn-load-rfid {
+    height: 38px;
+    padding: 0 12px;
+
+    border: 1px solid rgba(99, 102, 241, 0.55);
+    border-radius: 9px;
+
+    background: rgba(99, 102, 241, 0.12);
+    color: #a5b4fc;
+
+    font-size: 0.75rem;
+    font-weight: 600;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+
+    cursor: pointer;
+    white-space: nowrap;
+
+    transition: all 0.2s ease;
+}
+
+.btn-load-rfid svg {
+    width: 14px;
+    height: 14px;
+}
+
+.btn-load-rfid:hover {
+    background: rgba(99, 102, 241, 0.22);
+    border-color: rgba(99, 102, 241, 0.8);
+}
+
+.btn-load-rfid:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+.rfid-status {
+    display: block;
+    min-height: 16px;
+    margin-top: 5px;
+    font-size: 0.72rem;
+}
+
+.rfid-status.success {
+    color: #34d399;
+}
+
+.rfid-status.error {
+    color: #f87171;
+}
+
+
+
+
     </style>
 
 </head>
@@ -2059,7 +2128,6 @@
 
 
 <body>
-
     <!-- ───── HEADER ───── -->
     <header class="header">
         <div class="header-inner">
@@ -2132,8 +2200,6 @@
             </button>
         </div>
     </div>
-
-
     <!-- ───── CARDS GRID ───── -->
     <main class="main">
         <div class="cards-grid" id="cardsGrid">
@@ -2144,7 +2210,6 @@
             </div>
         </div>
     </main>
-
     <!-- ───── ADD / EDIT MODAL ───── -->
     <div class="modal-backdrop" id="modalBackdrop">
         <div class="modal" id="modal">
@@ -2238,7 +2303,6 @@
             </div>
         </div>
     </div>
-
     <!-- ───── DELETE CONFIRM ───── -->
     <div class="modal-backdrop" id="deleteBackdrop">
         <div class="modal modal-sm">
@@ -2260,7 +2324,6 @@
             </div>
         </div>
     </div>
-
     <!-- ───── USERS PANEL ───── -->
     <div class="modal-backdrop" id="usersBackdrop">
         <div class="modal modal-users" id="usersModal">
@@ -2338,8 +2401,43 @@
                         <input id="eGmail" type="email" class="form-control" placeholder="example@noveloffice.in" />
                     </div>
                     <div class="form-group full">
-                        <label for="eRFID">RFID String <span class="req">*</span></label>
-                        <input id="eRFID" type="text" class="form-control mono" placeholder="e.g. 13072052" />
+                        <label for="eRFID">
+                            RFID String <span class="req">*</span>
+                        </label>
+                    
+                        <div class="rfid-input-row">
+                    
+                            <input
+                                id="eRFID"
+                                name="eRFID"
+                                type="text"
+                                class="form-control mono"
+                                placeholder="e.g. 13072052"
+                                autocomplete="off"
+                            />
+                    
+                            <button
+                                type="button"
+                                id="loadRfidBtn"
+                                class="btn-load-rfid"
+                            >
+                                <svg
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="2"
+                                >
+                                    <path d="M12 3v12"></path>
+                                    <path d="M7 10l5 5 5-5"></path>
+                                    <path d="M5 21h14"></path>
+                                </svg>
+                    
+                                <span id="loadRfidBtnText">Load RFID</span>
+                            </button>
+                    
+                        </div>
+                    
+                        <span id="rfidStatus" class="rfid-status"></span>
                     </div>
                     <div class="form-group full">
                         <label style="display: flex; align-items: center; gap: 8px; font-weight: 500; cursor: pointer;">
@@ -2413,15 +2511,6 @@
 // ══════════════════════════════════════════════════════
 
 // ══════════════════════════════════════════════════════
-
-
-
-
-
-
-
-
-
 
 
 
@@ -3269,29 +3358,42 @@ async function handleDelete() {
 // ─── Add Modal ──────────────────────────────────────────
 // ── View Users Panel ────────────────────────────────────
 async function openUsersPanel(device_id) {
-  usersTitle.textContent = `Users — ${device_id}`;
-  usersCountBadge.textContent = 'Loading…';
-  usersSearchInput.value = ''; // Clear search on open
-  currentUsers = [];
-  usersList.innerHTML = `
-    <div class="users-loading">
-      <div class="users-loading-spinner"></div>
-      Fetching registered users…
-    </div>`;
-  showModal(usersBackdrop);
+    usersTitle.textContent = `Users — ${device_id}`;
+    usersCountBadge.textContent = 'Loading…';
+    usersSearchInput.value = '';
+    currentUsers = [];
 
-  try {
-    const res = await fetch(
-      `${BASE_URL}/get-user/${encodeURIComponent(device_id)}`,
-      { credentials: 'omit' }
-    );
-    const data = await res.json();
-    currentUsers = data.data || [];
-    renderUsersTable(currentUsers, device_id);
-  } catch (err) {
-    usersCountBadge.textContent = 'Error';
-    usersList.innerHTML = `<div class="users-empty">❌ Network error: ${escHtml(err.message)}</div>`;
-  }
+    usersList.innerHTML = `
+        <div class="users-loading">
+            <div class="users-loading-spinner"></div>
+            Fetching registered users…
+        </div>`;
+
+    showModal(usersBackdrop);
+
+    try {
+        const res = await fetch(
+            `${BASE_URL}/get-user/${encodeURIComponent(device_id)}`,
+            { credentials: 'omit' }
+        );
+
+        const data = await res.json();
+
+        currentUsers = data.data || [];
+
+        // Newest employee first
+        currentUsers.reverse();
+
+        renderUsersTable(currentUsers, device_id);
+
+    } catch (err) {
+        usersCountBadge.textContent = 'Error';
+
+        usersList.innerHTML = `
+            <div class="users-empty">
+                ❌ Network error: ${escHtml(err.message)}
+            </div>`;
+    }
 }
 
 function renderUsersTable(users, device_id) {
@@ -3718,6 +3820,16 @@ async function handleSaveEmployee() {
         // =================================================
 
         hideModal(employeeBackdrop);
+        // Refresh users list after adding employee
+        if (!bulkAddMode && successfulDevices.length > 0) {
+            const device_id = usersTitle.textContent.split(' — ')[1];
+        
+            if (device_id) {
+                setTimeout(() => {
+                    openUsersPanel(device_id);
+                }, 800);
+            }
+        }
 
 
         // =================================================
@@ -4107,8 +4219,160 @@ skeletonStyles.textContent = `
 `;
 document.head.appendChild(skeletonStyles);
 
+
+document.addEventListener("DOMContentLoaded", function () {
+
+    const loadRfidBtn = document.getElementById("loadRfidBtn");
+
+    if (!loadRfidBtn) {
+        console.error("Load RFID button not found!");
+        return;
+    }
+
+    loadRfidBtn.addEventListener("click", async function () {
+
+        // Get elements when button is clicked
+        const rfidInput = document.getElementById("eRFID");
+        const rfidStatus = document.getElementById("rfidStatus");
+        const loadRfidBtnText = document.getElementById("loadRfidBtnText");
+
+        // Safety check
+        if (!rfidInput) {
+            console.error("RFID input #eRFID was not found!");
+
+            if (rfidStatus) {
+                rfidStatus.textContent = "RFID field not found";
+                rfidStatus.className = "rfid-status error";
+            }
+
+            return;
+        }
+
+        console.log("RFID input found:", rfidInput);
+
+        // Disable button
+        loadRfidBtn.disabled = true;
+
+        if (loadRfidBtnText) {
+            loadRfidBtnText.textContent = "Loading...";
+        }
+
+        if (rfidStatus) {
+            rfidStatus.textContent = "Reading RFID...";
+            rfidStatus.className = "rfid-status";
+        }
+
+        try {
+
+            console.log("Calling RFID API...");
+
+            const response = await fetch(
+                `${BASE_URL}/display`,
+                {
+                    method: "GET",
+                    cache: "no-store"
+                }
+            );
+
+            console.log("Display API status:", response.status);
+
+            if (!response.ok) {
+                throw new Error(
+                    "HTTP error: " + response.status
+                );
+            }
+
+            const result = await response.json();
+
+            console.log("Display API response:", result);
+
+            // Check response
+            if (
+                result &&
+                result.data &&
+                result.data !== "No card found"
+            ) {
+
+                const rfidValue = String(result.data).trim();
+
+                console.log("RFID received:", rfidValue);
+
+                // Put RFID into input
+                rfidInput.value = rfidValue;
+
+                // Trigger input/change events
+                rfidInput.dispatchEvent(
+                    new Event("input", {
+                        bubbles: true
+                    })
+                );
+
+                rfidInput.dispatchEvent(
+                    new Event("change", {
+                        bubbles: true
+                    })
+                );
+
+                if (rfidStatus) {
+                    rfidStatus.textContent =
+                        "RFID loaded successfully";
+
+                    rfidStatus.className =
+                        "rfid-status success";
+                }
+
+            } else {
+
+                console.log("No RFID card found");
+
+                rfidInput.value = "";
+
+                if (rfidStatus) {
+                    rfidStatus.textContent =
+                        "No card found";
+
+                    rfidStatus.className =
+                        "rfid-status error";
+                }
+            }
+
+        } catch (error) {
+
+            console.error(
+                "Load RFID error:",
+                error
+            );
+
+            if (rfidStatus) {
+                rfidStatus.textContent =
+                    "Unable to load RFID";
+
+                rfidStatus.className =
+                    "rfid-status error";
+            }
+
+        } finally {
+
+            loadRfidBtn.disabled = false;
+
+            if (loadRfidBtnText) {
+                loadRfidBtnText.textContent =
+                    "Load RFID";
+            }
+        }
+
+    });
+
+});
+
 // ─── Init ────────────────────────────────────────────────
+
+
 fetchDevices();
+
+
+
+
 
     </script>
 </body>

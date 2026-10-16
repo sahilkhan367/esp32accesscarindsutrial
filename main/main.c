@@ -36,7 +36,7 @@
 
 const char *DEVICE_ID = "esp32_049";
 
-const char *VERSION = "2.0V";
+const char *VERSION = "2.1V";
 
 /* ===================== GPIO & UART DEFINES ===================== */
 
@@ -491,17 +491,23 @@ void uart2_task(void *arg)
                     red_led_1_on_500ms(); // ✅ safe, non-blocking
                     esp_err_t wifi_status_in = esp_wifi_sta_get_ap_info(&ap_info);
                     if ((wifi_status_in == ESP_OK || ethernet_is_connected_check()) && mqtt_connected) {
-                        // printf("Connected to WiFi\n");
-                        // send_uart_scan_to_server("reader1", result, "IN");
-                        send_uart_scan_to_server("reader1", result, "IN", "Denied");
+                        if(result!=0){
+                            send_uart_scan_to_server("reader1", result, "IN", "Denied");
+                        }
+                        else{
+                            ESP_LOGW("RFID", "Invalid RFID result: 0. Skipping log.");
+                        }
                     } else {
-
-                        save_offline_log(
-                            result,
-                            "reader1",
-                            "IN",
-                            "Denied"
-                        );
+                        if(result!=0){
+                            save_offline_log(
+                                result,
+                                "reader1",
+                                "IN",
+                                "Denied"
+                            );
+                        }else{
+                            ESP_LOGW("RFID", "Invalid RFID result: 0. Skipping offline logs saving.");
+                        }
                         nvs_stats_t stats;
                         nvs_get_stats(NULL, &stats);
                         ESP_LOGI("NVS", "Total entries: %d", stats.total_entries);
@@ -571,15 +577,22 @@ void uart1_task(void *arg)
                     red_led_2_on_500ms(); // ✅ safe, non-blocking
                     esp_err_t wifi_status_out = esp_wifi_sta_get_ap_info(&ap_info);
                     if ((wifi_status_out == ESP_OK || ethernet_is_connected_check()) && mqtt_connected) {
+                        if(result!=0){
                         send_uart_scan_to_server("reader2", result, "OUT", "Denied");
+                        }else{
+                            ESP_LOGW("RFID", "Invalid RFID result: 0. Skipping log.");
+                        }
                     } else {
-                        //printf("Not Connected\n");
-                        save_offline_log(
-                            result,
-                            "reader2",
-                            "OUT",
-                            "Denied"
-                        );
+                        if(result!=0){
+                            save_offline_log(
+                                result,
+                                "reader2",
+                                "OUT",
+                                "Denied"
+                            );
+                        }else{
+                            ESP_LOGW("RFID", "Invalid RFID result: 0. Skipping offline logs saving.");
+                        }
                         //print_offline_logs();
                         nvs_stats_t stats;
                         nvs_get_stats(NULL, &stats);
@@ -662,85 +675,170 @@ static void mqtt_event_handler(void *arg,
         break;
     }
 
+
     case MQTT_EVENT_DATA:
-        ESP_LOGI(TAG, "CMD RECEIVED: %.*s", event->data_len, event->data);
-        // printf("DATA before if: %.*s\n", event->data_len, event->data);
+    {
+        ESP_LOGI(
+            TAG,
+            "CMD RECEIVED: %.*s",
+            event->data_len,
+            event->data
+        );
+    
         data_parsing(event->data, event->data_len);
+    
         static char cached_gmail[128] = "";
         static char cached_employee_id[32] = "";
         static char cached_novel_emp[8] = "";
-
-        if (event->data_len>=10 && strncmp(event->data, "novel_emp:", 10) == 0)
+    
+        // -------------------------------------------------
+        // 1. Cache Novel Employee value
+        // -------------------------------------------------
+        if (event->data_len >= 10 &&
+            strncmp(event->data, "novel_emp:", 10) == 0)
         {
             int value_len = event->data_len - 10;
-        
-            if (value_len > 0 && value_len < sizeof(cached_novel_emp))
+    
+            if (value_len < sizeof(cached_novel_emp))
             {
-                snprintf(
+                memset(
                     cached_novel_emp,
-                    sizeof(cached_novel_emp),
-                    "%.*s",
-                    value_len,
-                    event->data + 10
+                    0,
+                    sizeof(cached_novel_emp)
                 );
-        
+    
+                if (value_len > 0)
+                {
+                    snprintf(
+                        cached_novel_emp,
+                        sizeof(cached_novel_emp),
+                        "%.*s",
+                        value_len,
+                        event->data + 10
+                    );
+                }
+    
                 ESP_LOGI(
                     TAG,
-                    "Cached Novel Employee: %s",
+                    "Cached Novel Employee: '%s'",
                     cached_novel_emp
                 );
             }
+            else
+            {
+                ESP_LOGW(TAG, "Novel Employee value is too long");
+            }
         }
-        
-
-        if (strncmp(event->data, "gmail:", 6) == 0)
+    
+        // -------------------------------------------------
+        // 2. Cache Gmail and reset previous employee data
+        // -------------------------------------------------
+        if (event->data_len >= 6 &&
+            strncmp(event->data, "gmail:", 6) == 0)
         {
-            snprintf(
-                cached_gmail,
-                sizeof(cached_gmail),
-                "%.*s",
-                event->data_len - 6,
-                event->data + 6);
-            ESP_LOGI(TAG, "Cached gmail: %s", cached_gmail);
+            int gmail_len = event->data_len - 6;
+    
+            if (gmail_len < sizeof(cached_gmail))
+            {
+                // Clear values belonging to the previous employee
+                memset(
+                    cached_employee_id,
+                    0,
+                    sizeof(cached_employee_id)
+                );
+    
+                memset(
+                    cached_novel_emp,
+                    0,
+                    sizeof(cached_novel_emp)
+                );
+    
+                memset(
+                    cached_gmail,
+                    0,
+                    sizeof(cached_gmail)
+                );
+    
+                if (gmail_len > 0)
+                {
+                    snprintf(
+                        cached_gmail,
+                        sizeof(cached_gmail),
+                        "%.*s",
+                        gmail_len,
+                        event->data + 6
+                    );
+                }
+    
+                ESP_LOGI(TAG, "Cached Gmail: %s", cached_gmail);
+                ESP_LOGI(TAG, "Previous employee data cleared");
+            }
+            else
+            {
+                ESP_LOGW(TAG, "Gmail length is invalid");
+            }
         }
-        //-------------------------------------------------
-        if (strncmp(event->data, "employee_id:", 12) == 0)
+    
+        // -------------------------------------------------
+        // 3. Cache Employee ID
+        //    An empty employee_id: command clears the ID
+        // -------------------------------------------------
+        if (event->data_len >= 12 &&
+            strncmp(event->data, "employee_id:", 12) == 0)
         {
             int id_len = event->data_len - 12;
     
-            if (id_len > 0 && id_len < sizeof(cached_employee_id))
+            if (id_len < sizeof(cached_employee_id))
             {
-                snprintf(
+                // Always clear the old value first
+                memset(
                     cached_employee_id,
-                    sizeof(cached_employee_id),
-                    "%.*s",
-                    id_len,
-                    event->data + 12
+                    0,
+                    sizeof(cached_employee_id)
                 );
+    
+                // Store a new ID only if one was provided
+                if (id_len > 0)
+                {
+                    snprintf(
+                        cached_employee_id,
+                        sizeof(cached_employee_id),
+                        "%.*s",
+                        id_len,
+                        event->data + 12
+                    );
+                }
     
                 ESP_LOGI(
                     TAG,
-                    "Cached Employee ID: %s",
+                    "Cached Employee ID: '%s'",
                     cached_employee_id
                 );
             }
             else
             {
-                ESP_LOGW(TAG, "Invalid Employee ID length");
+                ESP_LOGW(TAG, "Employee ID length is invalid");
             }
         }
-
-        if (strncmp(event->data, "ADD", 3) == 0)
+    
+        // -------------------------------------------------
+        // 4. ADD RFID acknowledgment
+        // -------------------------------------------------
+        if (event->data_len >= 3 &&
+            strncmp(event->data, "ADD", 3) == 0)
         {
-            ESP_LOGI(TAG, "Data received");
-        
+            ESP_LOGI(TAG, "ADD command received");
+    
             char ack_msg[256];
             char ack_topic[64];
-        
-            // Topic
-            snprintf(ack_topic, sizeof(ack_topic), "esp32/ack/%s", DEVICE_ID);
-        
-            // Payload
+    
+            snprintf(
+                ack_topic,
+                sizeof(ack_topic),
+                "esp32/ack/%s",
+                DEVICE_ID
+            );
+    
             snprintf(
                 ack_msg,
                 sizeof(ack_msg),
@@ -757,45 +855,80 @@ static void mqtt_event_handler(void *arg,
                 cached_employee_id,
                 cached_novel_emp[0] ? cached_novel_emp : "0"
             );
-        
-            esp_mqtt_client_publish(event->client, ack_topic, ack_msg, 0, 1, 1);
+    
+            ESP_LOGI(TAG, "ADD ACK: %s", ack_msg);
+    
+            esp_mqtt_client_publish(
+                event->client,
+                ack_topic,
+                ack_msg,
+                0,
+                1,
+                1
+            );
         }
-        else if (strncmp(event->data, "RM", 2) == 0)
+        // -------------------------------------------------
+        // 5. RM RFID acknowledgment
+        // -------------------------------------------------
+        else if (event->data_len >= 2 &&
+                 strncmp(event->data, "RM", 2) == 0)
         {
             char ack_msg[256];
             char ack_topic[64];
-        
-            // Topic
-            snprintf(ack_topic, sizeof(ack_topic), "esp32/ack/%s", DEVICE_ID);
-        
-            // Payload
+    
+            snprintf(
+                ack_topic,
+                sizeof(ack_topic),
+                "esp32/ack/%s",
+                DEVICE_ID
+            );
+    
             snprintf(
                 ack_msg,
                 sizeof(ack_msg),
-                "{\"device_id\":\"%s\",\"RM\":\"%.*s\",\"status\":\"received\",\"gmail\":\"%s\"}",
+                "{\"device_id\":\"%s\","
+                "\"RM\":\"%.*s\","
+                "\"status\":\"received\","
+                "\"gmail\":\"%s\"}",
                 DEVICE_ID,
                 event->data_len,
                 event->data,
-                cached_gmail);
-        
-            esp_mqtt_client_publish(event->client, ack_topic, ack_msg, 0, 1, 1);
+                cached_gmail
+            );
+    
+            esp_mqtt_client_publish(
+                event->client,
+                ack_topic,
+                ack_msg,
+                0,
+                1,
+                1
+            );
         }
-        //-----------------------------------------------------------
-        else if (strncmp(event->data, "OTA", 3) == 0)
+        // -------------------------------------------------
+        // 6. OTA command
+        // -------------------------------------------------
+        else if (event->data_len >= 3 &&
+                 strncmp(event->data, "OTA", 3) == 0)
         {
             ESP_LOGI(TAG, "OTA command received");
             start_ota_update();
         }
-        //-----------------------------------------------------------
-        if (event->data_len == 15 && strncmp(event->data, "BULK_DELETE_ALL", 15) == 0)
+    
+        // -------------------------------------------------
+        // 7. Delete all RFID data
+        // -------------------------------------------------
+        if (event->data_len == 15 &&
+            strncmp(event->data, "BULK_DELETE_ALL", 15) == 0)
         {
-            ESP_LOGI(TAG, "BULK_RM this is the one command received");
-        
-            erase_rfid_data_and_restart(event->client);   // ✅ pass client directly
+            ESP_LOGI(TAG, "BULK_DELETE_ALL command received");
+    
+            erase_rfid_data_and_restart(event->client);
         }
-        
-        //-------------------------------------------------------------
+    
         break;
+    }
+
 
     default:
         break;
